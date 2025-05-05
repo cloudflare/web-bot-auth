@@ -10,7 +10,9 @@ export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
 import { b64ToB64URL, b64ToB64NoPadding, b64Tou8, u8ToB64 } from "./base64";
 
 export const HTTP_MESSAGE_SIGNAGURE_TAG = "web-bot-auth";
-export const REQUEST_COMPONENTS: httpsig.Component[] = ["@authority"];
+export const SIGNATURE_AGENT_HEADER = "signature-agent";
+export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = ["@authority"];
+export const REQUEST_COMPONENTS: httpsig.Component[] = ["@authority", SIGNATURE_AGENT_HEADER];
 export const NONCE_LENGTH_IN_BYTES = 64;
 
 export interface SignatureParams {
@@ -60,9 +62,15 @@ export function signatureHeaders<
       throw new Error("nonce is not a valid uint32");
     }
   }
+  const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
+  let components: string[] = REQUEST_COMPONENTS;
+  // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
+  if (!signatureAgent) {
+    components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+  }
   return httpsig.signatureHeaders(message, {
     signer,
-    components: REQUEST_COMPONENTS,
+    components,
     created: params.created,
     expires: params.expires,
     nonce,
@@ -89,9 +97,15 @@ export function signatureHeadersSync<
       throw new Error("nonce is not a valid uint32");
     }
   }
+  const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
+  let components: string[] = REQUEST_COMPONENTS;
+  // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
+  if (!signatureAgent) {
+    components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+  }
   return httpsig.signatureHeadersSync(message, {
     signer,
-    components: REQUEST_COMPONENTS,
+    components,
     created: params.created,
     expires: params.expires,
     nonce,
