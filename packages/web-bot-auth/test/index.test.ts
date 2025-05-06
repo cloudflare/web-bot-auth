@@ -1,10 +1,75 @@
 import { describe, it, expect } from "vitest";
 import {
   generateNonce,
+  helpers,
+  jwkToKeyID,
+  signatureHeaders,
   validateNonce,
   NONCE_LENGTH_IN_BYTES,
+  SIGNATURE_AGENT_HEADER,
 } from "../src/index";
 import { b64Tou8, u8ToB64 } from "../src/base64";
+
+import vectors from "./test_data/web_bot_auth_architecture_v1.json";
+type Vectors = (typeof vectors)[number];
+
+class Ed25519Signer {
+  public alg: Algorithm = "ed25519";
+  public keyid: string;
+  private privateKey: CryptoKey;
+
+  constructor(keyid: string, privateKey: CryptoKey) {
+    this.keyid = keyid;
+    this.privateKey = privateKey;
+  }
+
+  static async fromJWK(jwk: JsonWebKey): Promise<Ed25519Signer> {
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "Ed25519" },
+      true,
+      ["sign"]
+    );
+    const keyid = await jwkToKeyID(
+      jwk,
+      helpers.WEBCRYPTO_SHA256,
+      helpers.BASE64URL_DECODE
+    );
+    return new Ed25519Signer(keyid, key);
+  }
+
+  async sign(data: string): Promise<Uint8Array> {
+    const message = new TextEncoder().encode(data);
+    const signature = await crypto.subtle.sign(
+      "ed25519",
+      this.privateKey,
+      message
+    );
+    return new Uint8Array(signature);
+  }
+}
+
+describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
+  it("should pass IETF draft test vectors", async () => {
+    const signer = await Ed25519Signer.fromJWK(v.key);
+
+    const headers = new Headers();
+    if (v.signature_agent) {
+      headers.append(SIGNATURE_AGENT_HEADER, v.signature_agent);
+    }
+    const request = new Request(v.target_url, { headers });
+    const signedHeaders = await signatureHeaders(request, signer, {
+      created: new Date(v.created_ms),
+      expires: new Date(v.expires_ms),
+      nonce: v.nonce,
+      key: v.label,
+    });
+
+    expect(signedHeaders["Signature-Input"]).toBe(v.signature_input);
+    expect(signedHeaders["Signature"]).toBe(v.signature);
+  });
+});
 
 describe("nonce", () => {
   describe("generateNonce", () => {

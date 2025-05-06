@@ -11,14 +11,20 @@ import { b64ToB64URL, b64ToB64NoPadding, b64Tou8, u8ToB64 } from "./base64";
 
 export const HTTP_MESSAGE_SIGNAGURE_TAG = "web-bot-auth";
 export const SIGNATURE_AGENT_HEADER = "signature-agent";
-export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = ["@authority"];
-export const REQUEST_COMPONENTS: httpsig.Component[] = ["@authority", SIGNATURE_AGENT_HEADER];
+export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = [
+  "@authority",
+];
+export const REQUEST_COMPONENTS: httpsig.Component[] = [
+  "@authority",
+  SIGNATURE_AGENT_HEADER,
+];
 export const NONCE_LENGTH_IN_BYTES = 64;
 
 export interface SignatureParams {
   created: Date;
   expires: Date;
   nonce?: string;
+  key?: string;
 }
 
 export interface VerificationParams {
@@ -75,6 +81,7 @@ export function signatureHeaders<
     expires: params.expires,
     nonce,
     keyid: signer.keyid,
+    key: params.key,
     tag: HTTP_MESSAGE_SIGNAGURE_TAG,
   });
 }

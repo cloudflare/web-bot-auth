@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "generate-test-vectors": "node --experimental-transform-types scripts/test-vectors.ts test/test_data/web_bot_auth_architecture_v1.json",
     "prepublishOnly": "npm run build",
     "test": "vitest",
     "watch": "npm run build -- --watch src"

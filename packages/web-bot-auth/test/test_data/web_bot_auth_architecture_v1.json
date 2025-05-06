@@ -1,0 +1,35 @@
+[
+  {
+    "key": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "test-key-ed25519",
+      "d": "n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU",
+      "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"
+    },
+    "target_url": "https://example.com/path/to/resource",
+    "created_ms": 1735689600000,
+    "expires_ms": 1735693200000,
+    "nonce": "gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==",
+    "label": "sig1",
+    "signature": "sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:",
+    "signature_input": "sig1=(\"@authority\");created=1735689600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=1735693200;nonce=\"gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==\";tag=\"web-bot-auth\""
+  },
+  {
+    "key": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "kid": "test-key-ed25519",
+      "d": "n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU",
+      "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"
+    },
+    "target_url": "https://example.com/path/to/resource",
+    "created_ms": 1735689600000,
+    "expires_ms": 1735693200000,
+    "nonce": "ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==",
+    "label": "sig2",
+    "signature": "sig2=:bcWij+p0SZDQ0hF7Bk8scjEVRMJZlk1EzEHEHUzT58VbPWRrdIRYJgYerlC4fZ01v/hlsbnLvLDrrA5fBeb1CA==:",
+    "signature_input": "sig2=(\"@authority\" \"signature-agent\");created=1735689600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=1735693200;nonce=\"ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==\";tag=\"web-bot-auth\"",
+    "signature_agent": "signature-agent.test"
+  }
+]
