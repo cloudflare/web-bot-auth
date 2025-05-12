@@ -29,6 +29,7 @@ More concrete examples are provided on [cloudflareresearch/web-bot-auth/examples
 
 ```typescript
 import { Algorithm, signatureHeaders } from "web-bot-auth";
+import { Ed25519Signer } from "web-bot-auth/crypto";
 
 // The following simple request ios going to be signed
 const request = new Request("https://example.com");
@@ -41,44 +42,6 @@ const RFC_9421_ED25519_TEST_KEY = {
   d: "n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU",
   x: "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
 };
-
-// Declare a signer for HTTP Message Signature
-class Ed25519Signer {
-  public alg: Algorithm = "ed25519";
-  public keyid: string;
-  private privateKey: CryptoKey;
-
-  constructor(keyid: string, privateKey: CryptoKey) {
-    this.keyid = keyid;
-    this.privateKey = privateKey;
-  }
-
-  static async fromJWK(jwk: JsonWebKey): Promise<Ed25519Signer> {
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "Ed25519" },
-      true,
-      ["sign"]
-    );
-    const keyid = await jwkToKeyID(
-      jwk,
-      helpers.WEBCRYPTO_SHA256,
-      helpers.BASE64URL_DECODE
-    );
-    return new Ed25519Signer(keyid, key);
-  }
-
-  async sign(data: string): Promise<Uint8Array> {
-    const message = new TextEncoder().encode(data);
-    const signature = await crypto.subtle.sign(
-      "ed25519",
-      this.privateKey,
-      message
-    );
-    return new Uint8Array(signature);
-  }
-}
 
 const headers = signatureHeaders(
   request,

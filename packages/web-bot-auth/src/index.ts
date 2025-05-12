@@ -7,7 +7,8 @@ export {
 } from "http-message-sig";
 export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
 
-import { b64ToB64URL, b64ToB64NoPadding, b64Tou8, u8ToB64 } from "./base64";
+import { b64Tou8, u8ToB64 } from "./base64";
+export { helpers } from "./crypto";
 
 export const HTTP_MESSAGE_SIGNAGURE_TAG = "web-bot-auth";
 export const SIGNATURE_AGENT_HEADER = "signature-agent";
@@ -163,9 +164,3 @@ export function verify<T>(
 export interface Directory extends httpsig.Directory {
   purpose: string;
 }
-
-export const helpers = {
-  WEBCRYPTO_SHA256: (b: BufferSource) => crypto.subtle.digest("SHA-256", b),
-  BASE64URL_DECODE: (u: ArrayBuffer) =>
-    b64ToB64URL(b64ToB64NoPadding(u8ToB64(new Uint8Array(u)))),
-};

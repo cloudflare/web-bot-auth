@@ -3,9 +3,9 @@
 ///
 /// It takes one positional argument: [path] which is where the vectors should be written in JSON
 
-const { generateNonce, helpers, jwkToKeyID, signatureHeaders } = await import(
-  "../src/index.ts"
-);
+const { generateNonce, signatureHeaders } = await import("../src/index.ts");
+
+const { Ed25519Signer } = await import("../src/crypto.ts");
 
 const fs = await import("fs");
 const jwk = JSON.parse(
@@ -14,43 +14,6 @@ const jwk = JSON.parse(
 
 const SIGNATURE_AGENT_DOMAIN = "signature-agent.test";
 const ORIGIN_URL = "https://example.com/path/to/resource";
-
-class Ed25519Signer {
-  public alg: Algorithm = "ed25519";
-  public keyid: string;
-  private privateKey: CryptoKey;
-
-  constructor(keyid: string, privateKey: CryptoKey) {
-    this.keyid = keyid;
-    this.privateKey = privateKey;
-  }
-
-  static async fromJWK(jwk: JsonWebKey): Promise<Ed25519Signer> {
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "Ed25519" },
-      true,
-      ["sign"]
-    );
-    const keyid = await jwkToKeyID(
-      jwk,
-      helpers.WEBCRYPTO_SHA256,
-      helpers.BASE64URL_DECODE
-    );
-    return new Ed25519Signer(keyid, key);
-  }
-
-  async sign(data: string): Promise<Uint8Array> {
-    const message = new TextEncoder().encode(data);
-    const signature = await crypto.subtle.sign(
-      "ed25519",
-      this.privateKey,
-      message
-    );
-    return new Uint8Array(signature);
-  }
-}
 
 interface TestVector {
   key: JsonWebKey;
