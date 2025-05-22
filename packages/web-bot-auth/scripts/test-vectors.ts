@@ -5,12 +5,9 @@
 
 const { generateNonce, signatureHeaders } = await import("../src/index.ts");
 
-const { Ed25519Signer } = await import("../src/crypto.ts");
+const { signerFromJWK } = await import("../src/crypto.ts");
 
 const fs = await import("fs");
-const jwk = JSON.parse(
-  await fs.promises.readFile("../../examples/rfc9421-keys/ed25519.json", "utf8")
-);
 
 const SIGNATURE_AGENT_DOMAIN = "signature-agent.test";
 const ORIGIN_URL = "https://example.com/path/to/resource";
@@ -27,11 +24,11 @@ interface TestVector {
   signature_agent?: string;
 }
 
-async function generateTestVectors(): Promise<TestVector[]> {
+async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
   const now = new Date("2025-01-01T00:00:00Z");
   const created = now;
   const expires = new Date(now.getTime() + 3_600_000);
-  const signer = await Ed25519Signer.fromJWK(jwk);
+  const signer = await signerFromJWK(jwk);
 
   const nonce = generateNonce();
   const label = "sig1";
@@ -87,7 +84,24 @@ if (!outputPath) {
   process.exit(1);
 }
 
-const vectors = await generateTestVectors();
+const jwks = {
+  ed25519: JSON.parse(
+    await fs.promises.readFile(
+      "../../examples/rfc9421-keys/ed25519.json",
+      "utf8"
+    )
+  ),
+  rsapss: JSON.parse(
+    await fs.promises.readFile(
+      "../../examples/rfc9421-keys/rsapss.json",
+      "utf8"
+    )
+  ),
+};
+const vectors = [
+  ...(await generateTestVectors(jwks.rsapss)),
+  ...(await generateTestVectors(jwks.ed25519)),
+];
 
 for (const vector of vectors) {
   console.log(`Signature base

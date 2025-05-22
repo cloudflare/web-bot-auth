@@ -29,7 +29,7 @@ More concrete examples are provided on [cloudflareresearch/web-bot-auth/examples
 
 ```typescript
 import { Algorithm, signatureHeaders } from "web-bot-auth";
-import { Ed25519Signer } from "web-bot-auth/crypto";
+import { signerFromJWK } from "web-bot-auth/crypto";
 
 // The following simple request ios going to be signed
 const request = new Request("https://example.com");
@@ -45,7 +45,7 @@ const RFC_9421_ED25519_TEST_KEY = {
 
 const headers = signatureHeaders(
   request,
-  Ed25519Signer.fromJWK(RFC_9421_ED25519_TEST_KEY),
+  await signerFromJWK(RFC_9421_ED25519_TEST_KEY),
   {
     created: now,
     expires: new Date(now.getTime() + 300_000), // now + 5 min
@@ -64,7 +64,16 @@ const signedRequest = new Request("https://example.com", {
 ### Verifying
 
 ```typescript
-import { Directory, VerificationParams, verify } from "web-bot-auth";
+import { verify } from "web-bot-auth";
+import { verifierFromJWK } from "web-bot-auth/crypto";
+
+// available at https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
+const RFC_9421_ED25519_TEST_KEY = {
+  kty: "OKP",
+  crv: "Ed25519",
+  kid: "test-key-ed25519",
+  x: "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
+};
 
 // Reusing the incoming request signed in the above section
 const signedRequest = new Request("https://example.com", {
@@ -74,37 +83,7 @@ const signedRequest = new Request("https://example.com", {
   },
 });
 
-async function verifyEd25519(
-  data: string,
-  signature: Uint8Array,
-  params: VerificationParams
-) {
-  // note that here we use getDirectory, but this is as simple as a fetch
-  const directory = await getDirectory();
-
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    RFC_9421_ED25519_TEST_KEY,
-    { name: "Ed25519" },
-    true,
-    ["verify"]
-  );
-
-  const message = new TextEncoder().encode(data);
-
-  const isValid = await crypto.subtle.verify(
-    { name: "Ed25519" },
-    key,
-    signature,
-    message
-  );
-
-  if (!isValid) {
-    throw new Error("invalid signature");
-  }
-}
-
-await verify(signedRequest, verifyEd25519);
+await verify(signedRequest, await verifierFromJWK(RFC_9421_ED25519_TEST_KEY));
 ```
 
 ## Security Considerations
