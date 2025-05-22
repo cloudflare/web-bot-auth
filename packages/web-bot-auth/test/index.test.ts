@@ -5,16 +5,34 @@ import {
   validateNonce,
   NONCE_LENGTH_IN_BYTES,
   SIGNATURE_AGENT_HEADER,
+  Signer,
 } from "../src/index";
-import { Ed25519Signer } from "../src/crypto";
+import { Ed25519Signer, RSAPSSSHA512Signer } from "../src/crypto";
 import { b64Tou8, u8ToB64 } from "../src/base64";
 
 import vectors from "./test_data/web_bot_auth_architecture_v1.json";
 type Vectors = (typeof vectors)[number];
 
+function signerFromJwk(jwk: JsonWebKey): Signer {
+  switch (jwk.kty) {
+    case "OKP":
+      if (jwk.crv === "Ed25519") {
+        return Ed25519Signer.fromJWK(jwk);
+      }
+      throw new Error(`Unsupported curve: ${jwk.crv}`);
+    case "RSA":
+      if (jwk.alg === "PS512") {
+        return RSAPSSSHA512Signer.fromJWK(jwk);
+      }
+      throw new Error(`Unsupported algorithm: ${jwk.alg}`); 
+    default:
+      throw new Error(`Unsupported key type: ${jwk.kty}`);
+  }
+}
+
 describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
   it("should pass IETF draft test vectors", async () => {
-    const signer = await Ed25519Signer.fromJWK(v.key);
+    const signer = await signerFromJwk(v.key);
 
     const headers = new Headers();
     if (v.signature_agent) {

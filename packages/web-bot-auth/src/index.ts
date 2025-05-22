@@ -4,6 +4,8 @@ export {
   type Algorithm,
   MediaType,
   type SignatureHeaders,
+  type Signer,
+  type SignerSync,
 } from "http-message-sig";
 export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
 
