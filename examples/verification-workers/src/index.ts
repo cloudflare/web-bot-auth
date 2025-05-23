@@ -3,10 +3,12 @@ import {
 	VerificationParams,
 	helpers,
 	jwkToKeyID,
+	signatureHeaders,
 	verify,
 } from "web-bot-auth";
 import { invalidHTML, neutralHTML, validHTML } from "./html";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
+import { Ed25519Signer } from "web-bot-auth/crypto";
 
 const getDirectory = async (): Promise<Directory> => {
 	const key = {
@@ -95,5 +97,25 @@ export default {
 		return new Response(validHTML, {
 			headers: { "content-type": "text/html" },
 		});
+	},
+	// On a schedule, send a web-bot-auth signed request to a target endpoint
+	async scheduled(ctx, env, ectx) {
+		const headers = { "Signature-Agent": env.SIGNATURE_AGENT };
+		const request = new Request(env.TARGET_URL, { headers });
+		const created = new Date(ctx.scheduledTime);
+		const expires = new Date(created.getTime() + 300_000);
+		const signedHeaders = await signatureHeaders(
+			request,
+			await Ed25519Signer.fromJWK(jwk),
+			{ created, expires }
+		);
+		await fetch(
+			new Request(request.url, {
+				headers: {
+					...signedHeaders,
+					...headers,
+				},
+			})
+		);
 	},
 } satisfies ExportedHandler<Env>;
