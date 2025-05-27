@@ -1,0 +1,25 @@
+[package]
+name = "web-bot-auth-rs"
+version = "0.1.0"
+authors = [
+    "Akshat Mahajan <akshat@cloudflare.com>",
+    "Gauri Baraskar <gbaraskar@cloudflare.com>",
+    "Armando Faz <armfazh@cloudflare.com>",
+    "Thibault Meunier <thibault@cloudflare.com>"
+]
+edition = "2024"
+readme = "README.md"
+homepage = "https://github.com/cloudflareresearch/web-bot-auth"
+repository = "https://github.com/cloudflareresearch/web-bot-auth"
+keywords = ["web-bot-auth", "http-message-signatures", "rfc9421", "cryptography"]
+categories = ["cryptography"]
+license = "Apache-2.0"
+
+[dependencies]
+sfv = "0.13.0"
+ed25519-dalek = { version = "2.1.1", features = ["pkcs8"] }
+indexmap = "^2"
+
+[lib]
+name = "web_bot_auth"
+path = "crates/src/lib.rs"
