@@ -1,10 +1,14 @@
 {
   "name": "web-bot-auth",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Web Bot Authentication using HTTP Message Signatures",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -41,7 +45,7 @@
   },
   "homepage": "https://github.com/cloudflareresearch/web-bot-auth#readme",
   "dependencies": {
-    "http-message-sig": "^0.0.7",
-    "jsonwebkey-thumbprint": "^0.0.1"
+    "http-message-sig": "^0.0.9",
+    "jsonwebkey-thumbprint": "^0.0.9"
   }
 }

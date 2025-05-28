@@ -1,10 +1,14 @@
 {
   "name": "jsonwebkey-thumbprint",
-  "version": "0.0.1",
+  "version": "0.0.9",
   "description": "JWK Thumbprint defined by RFC 7638",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
