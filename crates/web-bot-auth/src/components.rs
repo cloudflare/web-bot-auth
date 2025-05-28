@@ -4,6 +4,7 @@
 
 use super::ImplementationError;
 
+/// [Signature component parameters](https://www.rfc-editor.org/rfc/rfc9421#name-http-signature-component-pa) for HTTP fields.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub enum HTTPFieldParameters {
     /// Indicates whether this HTTP header was both a structured field value and should be strictly serialized in its
@@ -21,16 +22,18 @@ pub enum HTTPFieldParameters {
     Req,
 }
 
+/// A container that represents an ordered list of signature component fields. Order is significant during signing and
+/// verifying.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub struct HTTPFieldParametersSet(pub Vec<HTTPFieldParameters>);
 
-// Represents an HTTP header, informally.
+/// Represents an HTTP header, informally.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub struct HTTPField {
     /// Uniquely identified by name
     pub name: String,
-    // Parameters associated with this HTTPField. An ordered container is needed
-    // as order of serialization matters.
+    /// Parameters associated with this HTTPField. An ordered container is needed
+    /// as order of serialization matters.
     pub parameters: HTTPFieldParametersSet,
 }
 
@@ -162,6 +165,8 @@ impl TryFrom<HTTPField> for sfv::Item {
     }
 }
 
+/// [Signature component parameters](https://www.rfc-editor.org/rfc/rfc9421#name-http-signature-component-pa)
+/// specifically for the `@query-params` derived component.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub enum QueryParamParameters {
     /// Unique identifier for the query param
@@ -170,6 +175,9 @@ pub enum QueryParamParameters {
     Req,
 }
 
+/// A list of derived components, used to specify attributes of an HTTP message that otherwise can't be referenced
+/// via an HTTP header but nevertheless can be used in generating a signature base. Each component here, with the sole
+/// exception of `QueryParameters`, accepts a single component parameter `req.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub enum DerivedComponent {
     /// Represents `@authority` derived component
@@ -208,7 +216,10 @@ pub enum DerivedComponent {
         req: bool,
     },
     /// Represents the `@query-params` derived component
-    QueryParams { parameters: QueryParamParametersSet },
+    QueryParams {
+        /// The list of parameters associated with this field
+        parameters: QueryParamParametersSet,
+    },
     /// Represents `@status` derived component
     Status {
         /// Indicates this HTTP header value was obtained from the request. Typically only used in a signed response
@@ -216,6 +227,8 @@ pub enum DerivedComponent {
     },
 }
 
+/// A container that represents an ordered list of signature component fields. Order is significant during signing and
+/// verifying.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub struct QueryParamParametersSet(pub Vec<QueryParamParameters>);
 
@@ -343,9 +356,14 @@ impl TryFrom<DerivedComponent> for sfv::Item {
     }
 }
 
+/// Represents *any* component that can be used during message signing or verifying. See documentation
+/// about each wrapped variant to learn more.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub enum CoveredComponent {
+    /// Represents an HTTP field that can be used as part of the `Signature-Input` field
     HTTP(HTTPField),
+    /// Represents a derived component - message data not accessible as an HTTP header -
+    /// that can be used as part of the `Signature-Input` field.
     Derived(DerivedComponent),
 }
 

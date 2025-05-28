@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 authors = [
     "Akshat Mahajan <akshat@cloudflare.com>",
     "Gauri Baraskar <gbaraskar@cloudflare.com>",
@@ -23,8 +23,8 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 ed25519-dalek = { version = "2.1.1", features = ["pkcs8"] }
-indexmap = "^2"
+indexmap = "2.0"
 sfv = "0.13.0"
 
 # workspace dependencies
-web-bot-auth = { version = "0.1", path = "./crates/web-bot-auth" }
+web-bot-auth = { version = "0.0.1", path = "./crates/web-bot-auth" }

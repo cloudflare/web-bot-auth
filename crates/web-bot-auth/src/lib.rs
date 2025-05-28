@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 // Copyright (c) 2025 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
@@ -13,6 +14,8 @@
 //! - **Message Signing**: Generate HTTP message signatures using Ed25519 cryptography
 //! - **Message Verification**: Verify signed HTTP messages against public keys
 //! - **Web Bot Auth**: Specialized verification for automated agents with additional security requirements
+/// HTTP message components that can be present in a given signed / unsigned message, and all the logic
+/// to parse it from an incoming message.
 pub mod components;
 
 use components::CoveredComponent;
@@ -96,11 +99,17 @@ struct SignatureParams {
 /// Parsed values from `Signature-Input` header.
 #[derive(Debug, Clone)]
 pub struct ParameterDetails {
+    /// The value of the `alg` parameter, if present and resolves to a known algorithm.
     pub algorithm: Option<Algorithm>,
+    /// The value of the `created` parameter, if present.
     pub created: Option<i64>,
+    /// The value of the `expires` parameter, if present.
     pub expires: Option<i64>,
+    /// The value of the `keyid` parameter, if present.
     pub keyid: Option<String>,
+    /// The value of the `nonce` parameter, if present.
     pub nonce: Option<String>,
+    /// The value of the `tag` parameter,if present.
     pub tag: Option<String>,
 }
 
@@ -261,6 +270,7 @@ impl SignatureBase {
 /// implemented in this module. In the future, we may support more.
 #[derive(Debug, Clone)]
 pub enum Algorithm {
+    /// [The `ed25519` algorithm](https://www.rfc-editor.org/rfc/rfc9421#name-eddsa-using-curve-edwards25)
     Ed25519,
 }
 
@@ -699,7 +709,8 @@ impl WebBotAuthVerifier {
         ))
     }
 
-    // Return details + whether or not a Signature Agent header was present
+    /// Retrieve the parsed `ParameterDetails` from the message. Useful for logging
+    /// information about the message.
     pub fn get_details(&self) -> ParameterDetails {
         self.message_verifier.get_details()
     }
