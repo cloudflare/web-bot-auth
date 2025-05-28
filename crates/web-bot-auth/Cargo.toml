@@ -1,0 +1,18 @@
+[package]
+name = "web-bot-auth"
+description = "Web Bot Authentication using HTTP Message Signatures"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+
+[dependencies]
+ed25519-dalek = { workspace = true }
+indexmap = { workspace = true }
+sfv = { workspace = true }

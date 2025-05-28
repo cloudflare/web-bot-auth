@@ -1,6 +1,6 @@
 use web_bot_auth::{
-    components::{CoveredComponent, DerivedComponent},
     KeyRing, MessageVerifier, SignedMessage,
+    components::{CoveredComponent, DerivedComponent},
 };
 
 struct MySignedMsg;

@@ -5,15 +5,12 @@ on:
   pull_request:
 
 jobs:
-  check:
+  test-typescript:
+    name: Test TypeScript
     timeout-minutes: 5
     strategy:
       matrix:
-        os: [
-            ubuntu-24.04,
-            # windows-latest,
-            # macos-latest,
-          ]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +26,32 @@ jobs:
       - run: npm run build
       - run: npm run lint
       - run: npm run test
+
+  test-rust:
+    name: Test Rust
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        os: [ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Set rust toolchain
+        run: rustup override set 1.87 && rustup component add clippy rustfmt
+      - run: cargo fetch
+      - run: cargo build --all --verbose --exclude plexi-cli --all-features --tests
+      - run: cargo check --tests --examples --benches --all-features
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+      - run: cargo fmt --all -- --check
+      - run: cargo doc --all --exclude plexi-cli --all-features --document-private-items
+      - run: cargo test --all --verbose --exclude plexi-cli --all-features

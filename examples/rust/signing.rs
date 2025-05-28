@@ -1,8 +1,8 @@
 use indexmap::IndexMap;
 use std::time::Duration;
 use web_bot_auth::{
-    components::{CoveredComponent, DerivedComponent},
     Algorithm, MessageSigner, UnsignedMessage,
+    components::{CoveredComponent, DerivedComponent},
 };
 
 #[derive(Default)]
@@ -35,7 +35,7 @@ fn main() {
     let signer = MessageSigner {
         algorithm: Algorithm::Ed25519,
         keyid: "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".into(),
-        nonce: "end-to-end-test".into(),
+        nonce: "ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==".into(),
         tag: "web-bot-auth".into(),
     };
     let mut headers = MyThing::default();
