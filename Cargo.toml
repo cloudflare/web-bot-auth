@@ -17,7 +17,7 @@ edition = "2024"
 readme = "README.md"
 homepage = "https://github.com/cloudflare/web-bot-auth"
 repository = "https://github.com/cloudflare/web-bot-auth"
-keywords = ["web-bot-auth", "http-message-signatures", "rfc9421", "cryptography"]
+keywords = ["web-bot-auth", "http-signatures", "message-signatures", "rfc9421", "cryptography"]
 categories = ["cryptography"]
 license = "Apache-2.0"
 
