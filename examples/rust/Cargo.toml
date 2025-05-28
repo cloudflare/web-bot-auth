@@ -1,0 +1,30 @@
+[package]
+name = "rust-examples"
+description = "Web Bot Authentication using HTTP Message Signatures"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "signing"
+path = "signing.rs"
+
+[[bin]]
+name = "verify-arbitrary"
+path = "verify_arbitrary.rs"
+
+[[bin]]
+name = "verify"
+path = "verify.rs"
+
+[dependencies]
+indexmap = { workspace = true }
+
+# workspace dependencies
+web-bot-auth = { workspace = true }

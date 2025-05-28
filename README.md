@@ -29,6 +29,7 @@ This deployment allows to test your implementation.
 | Example                                            | Description                                  |
 | :------------------------------------------------- | :------------------------------------------- |
 | [Browser extension](./examples/browser-extension/) | Adds a `Signature` on every outgoing request |
+| [Rust](./examples/rust/)                           | Signs a hardcoded test request               |
 
 ### Verifying
 
@@ -36,16 +37,18 @@ This deployment allows to test your implementation.
 | :----------------------------------------------------- | :----------------------------------------------------- |
 | [Cloudflare Workers](./examples/verification-workers/) | Verify RFC 9421 `Signature` for every incoming request |
 | [Caddy Plugin](./examples/caddy-plugin/)               | Verify RFC 9421 `Signature` for every incoming request |
+| [Rust](./examples/rust/)                               | Verify a sample test request                           |
 
 ## Development
 
-This repository uses npm workspaces. There are 3 packages which it provides
+This repository uses [npm](https://docs.npmjs.com/cli/v11/using-npm/workspaces) and [cargo](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html) workspaces. There are 3 packages which it provides
 
-| Package                                                    | Description                                                                            |
-| :--------------------------------------------------------- | :------------------------------------------------------------------------------------- |
-| [http-message-sig](./packages/http-message-sig/)           | HTTP Message Signatures as defined in RFC 9421                                         |
-| [jsonwebkey-thumbprint](./packages/jsonwebkey-thumbprint/) | JWK Thumbprint as defined in RFC 7638                                                  |
-| [web-bot-auth](./packages/web-bot-auth/)                   | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
+| Package                                                    | Language   | Description                                                                            |
+| :--------------------------------------------------------- | :--------- | :------------------------------------------------------------------------------------- |
+| [http-message-sig](./packages/http-message-sig/)           | TypeScript | HTTP Message Signatures as defined in RFC 9421                                         |
+| [jsonwebkey-thumbprint](./packages/jsonwebkey-thumbprint/) | TypeScript | JWK Thumbprint as defined in RFC 7638                                                  |
+| [web-bot-auth](./packages/web-bot-auth/)                   | TypeScript | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
+| [web-bot-auth](./crates/web-bot-auth/)                     | Rust       | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
 
 ## Security Considerations
 

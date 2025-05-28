@@ -5,7 +5,7 @@
 
 [crates.io]: https://crates.io/crates/web-bot-auth
 
-A pure Rust implementation of [web-bot-auth](https://github.com/cloudflareresearch/web-bot-auth) as defined by [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
+A pure Rust implementation of [web-bot-auth](https://github.com/cloudflare/web-bot-auth) as defined by [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
 
 ## Tables of Content
 
@@ -21,9 +21,9 @@ A pure Rust implementation of [web-bot-auth](https://github.com/cloudflareresear
 
 ## Usage
 
-- Signing a message:  See [./examples/signing.rs](./examples/signing.rs) to generate the contents of `Signature` and `Signature-Input` header for the tag `web-bot-auth`.
-- Verifying a Web Bot Auth message: See [./examples/verify.rs](./examples/verify.rs).
-- Verifying an arbitrary message signature, not necessarily `web-bot-auth`: See [./examples/verify_arbitrary.rs](./examples/verify_arbitrary.rs).
+- Signing a message: See [signing.rs](../../examples/rust/signing.rs) to generate the contents of `Signature` and `Signature-Input` header for the tag `web-bot-auth`.
+- Verifying a Web Bot Auth message: See [verify.rs](../../examples/rust/verify.rs).
+- Verifying an arbitrary message signature, not necessarily `web-bot-auth`: See [verify_arbitrary.rs](../../examples/rust/verify_arbitrary.rs).
 
 ## Security Considerations
 
