@@ -1,13 +1,13 @@
 {
   "name": "http-message-signatures-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Enterprise browser extension adding an HTTP Message signature to all requests",
   "scripts": {
-    "build:chrome": "tsup src/background.ts --format esm --platform browser --target chrome100 --publicDir platform/mv3/chromium --clean --out-dir dist/mv3/chromium --external node:crypto",
-    "bundle:chrome": "npm run build:chrome && mkdir -p dist/web-ext-artifacts && crx pack --private-key signing-key.pem --output dist/web-ext-artifacts/http-message-signatures-extension.crx dist/mv3/chromium",
-    "generate-signing-key": "openssl genrsa -out signing-key.pem 2048",
-    "start:config": "cp ./config/chromium/update.xml dist/web-ext-artifacts && http-server ./dist/web-ext-artifacts -p 8000",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:chrome": "tsup src/background.ts --format esm --platform browser --target chrome100 --clean --out-dir dist/mv3/chromium --external node:crypto",
+    "bundle:chrome": "npm run build:chrome && node ./scripts/build_web_artifacts.mjs",
+    "start:config": "http-server ./dist/web-ext-artifacts -p 8000",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean": "rimraf dist"
   },
   "repository": {
     "type": "git",
@@ -32,7 +32,7 @@
     "@types/libsodium-wrappers": "0.7.14",
     "crx": "5.0.1",
     "http-server": "14.1.1",
-    "libsodium-wrappers": "0.7.15",
+    "rimraf": "6.0.1",
     "tsup": "8.5.0"
   }
 }

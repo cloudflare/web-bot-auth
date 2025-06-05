@@ -1,7 +1,6 @@
 {
   "manifest_version": 3,
   "name": "HTTP Message Signatures User Agent",
-  "version": "0.1.9",
   "permissions": ["webRequest", "webRequestBlocking"],
   "host_permissions": ["<all_urls>"],
   "background": {
