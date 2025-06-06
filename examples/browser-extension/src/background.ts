@@ -7,6 +7,11 @@ import {
 import _sodium from "libsodium-wrappers";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 
+// Make sure sodium is ready
+(async () => {
+  await _sodium.ready;
+})();
+
 // THIS IS DETERMINISTIC AND BASED ON THE KEY MATERIAL
 let KEY_ID = "not-set-yet";
 jwkToKeyID(jwk, helpers.WEBCRYPTO_SHA256, helpers.BASE64URL_DECODE).then(
@@ -52,9 +57,9 @@ class Ed25519Signer {
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   function (details) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
     const request = new Request(details.url, {
       method: details.method,
+      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
       headers: details.requestHeaders?.map((h) => [h.name, h.value!])!,
     });
     const now = new Date();
