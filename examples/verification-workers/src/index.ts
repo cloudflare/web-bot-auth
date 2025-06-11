@@ -114,7 +114,7 @@ export default {
 	},
 	// On a schedule, send a web-bot-auth signed request to a target endpoint
 	async scheduled(ctx, env, ectx) {
-		const headers = { "Signature-Agent": env.SIGNATURE_AGENT };
+		const headers = { "Signature-Agent": JSON.stringify(env.SIGNATURE_AGENT) };
 		const request = new Request(env.TARGET_URL, { headers });
 		const created = new Date(ctx.scheduledTime);
 		const expires = new Date(created.getTime() + 300_000);

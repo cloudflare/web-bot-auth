@@ -43,7 +43,7 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
   const nonceWithAgent = generateNonce();
   const labelWithAgent = "sig2";
   request = new Request(ORIGIN_URL, {
-    headers: { "Signature-Agent": SIGNATURE_AGENT_DOMAIN },
+    headers: { "Signature-Agent": JSON.stringify(SIGNATURE_AGENT_DOMAIN) },
   });
   const signedHeadersWithAgent = await signatureHeaders(request, signer, {
     created,
@@ -72,7 +72,7 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
       label: labelWithAgent,
       signature: signedHeadersWithAgent["Signature"],
       signature_input: signedHeadersWithAgent["Signature-Input"],
-      signature_agent: SIGNATURE_AGENT_DOMAIN,
+      signature_agent: request.headers.get("Signature-Agent"),
     },
   ];
 }
