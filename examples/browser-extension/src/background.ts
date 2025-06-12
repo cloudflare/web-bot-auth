@@ -7,11 +7,6 @@ import {
 import _sodium from "libsodium-wrappers";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 
-// Make sure sodium is ready
-(async () => {
-  await _sodium.ready;
-})();
-
 // THIS IS DETERMINISTIC AND BASED ON THE KEY MATERIAL
 let KEY_ID = "not-set-yet";
 jwkToKeyID(jwk, helpers.WEBCRYPTO_SHA256, helpers.BASE64URL_DECODE).then(
