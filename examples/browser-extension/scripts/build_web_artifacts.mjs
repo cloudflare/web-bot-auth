@@ -20,7 +20,7 @@ const { subtle } = globalThis.crypto;
 import pkg from '../package.json' with { type: "json" };
 
 function makePolicy(extensionID) {
-  const MarkerString = "********************************";
+  const MarkerString = "EXTENSION_ID_REPLACED_BY_NPM_RUN_BUNDLE_CHROME"
   const policyPath = path.join(path.dirname("."), "policy");
   if (!fs.existsSync(policyPath)) {
     fs.mkdirSync(policyPath, { recursive: true });
@@ -45,9 +45,7 @@ function setManifestVersion(version) {
   fs.writeFileSync(manifestOutputPath, JSON.stringify(manifest, null, 2));
 }
 
-
-(async function main() {
-
+async function main() {
   const distPath = path.join(path.dirname("."), "dist", "web-ext-artifacts");
   if (!fs.existsSync(distPath)) {
     fs.mkdirSync(distPath, { recursive: true });
@@ -90,4 +88,6 @@ function setManifestVersion(version) {
   makePolicy(extensionID);
 
   console.log(`Build Extension with ID: ${extensionID}`)
-})();
+};
+
+await main();
