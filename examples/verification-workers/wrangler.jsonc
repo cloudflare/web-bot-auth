@@ -17,7 +17,7 @@
 		"crons": ["*/5 * * * *"],
 	},
 	"vars": {
-		"SIGNATURE_AGENT": "http-message-signatures-example.research.cloudflare.com",
+		"SIGNATURE_AGENT": "https://http-message-signatures-example.research.cloudflare.com",
 		"TARGET_URL": "https://research.cloudflare.com/web-bot-auth-test/0.0.1",
 	},
 }
