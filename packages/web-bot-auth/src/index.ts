@@ -6,6 +6,8 @@ export {
   type SignatureHeaders,
   type Signer,
   type SignerSync,
+  Tag,
+  directoryResponseHeaders,
 } from "http-message-sig";
 export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
 

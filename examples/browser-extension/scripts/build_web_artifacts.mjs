@@ -17,10 +17,10 @@ import * as fs from "node:fs";
 import path from "node:path";
 const { KeyObject } = await import("node:crypto");
 const { subtle } = globalThis.crypto;
-import pkg from '../package.json' with { type: "json" };
+import pkg from "../package.json" with { type: "json" };
 
 function makePolicy(extensionID) {
-  const MarkerString = "EXTENSION_ID_REPLACED_BY_NPM_RUN_BUNDLE_CHROME"
+  const MarkerString = "EXTENSION_ID_REPLACED_BY_NPM_RUN_BUNDLE_CHROME";
   const policyPath = path.join(path.dirname("."), "policy");
   if (!fs.existsSync(policyPath)) {
     fs.mkdirSync(policyPath, { recursive: true });
@@ -37,8 +37,20 @@ function makePolicy(extensionID) {
 }
 
 function setManifestVersion(version) {
-  const manifestInputPath = path.join(path.dirname("."), "platform", "mv3", "chromium", 'manifest.json');
-  const manifestOutputPath = path.join(path.dirname("."), "dist", "mv3", "chromium", 'manifest.json');
+  const manifestInputPath = path.join(
+    path.dirname("."),
+    "platform",
+    "mv3",
+    "chromium",
+    "manifest.json"
+  );
+  const manifestOutputPath = path.join(
+    path.dirname("."),
+    "dist",
+    "mv3",
+    "chromium",
+    "manifest.json"
+  );
   const manifestStr = fs.readFileSync(manifestInputPath, "utf8");
   const manifest = JSON.parse(manifestStr);
   manifest.version = version;
@@ -72,22 +84,22 @@ async function main() {
   });
 
   const crx = new ChromeExtension({
-    codebase: "http://localhost:8000/" + pkg.name + '.crx',
+    codebase: "http://localhost:8000/" + pkg.name + ".crx",
     privateKey: skPEM,
     publicKey: pkBytes,
   });
 
   setManifestVersion(pkg.version);
-  await crx.load(path.join(path.dirname("."), "dist", "mv3", "chromium"))
+  await crx.load(path.join(path.dirname("."), "dist", "mv3", "chromium"));
   const extensionBytes = await crx.pack();
   const extensionID = crx.generateAppId();
 
   fs.writeFileSync("private_key.pem", skPEM);
-  fs.writeFileSync(path.join(distPath, pkg.name + '.crx'), extensionBytes);
+  fs.writeFileSync(path.join(distPath, pkg.name + ".crx"), extensionBytes);
   fs.writeFileSync(path.join(distPath, "update.xml"), crx.generateUpdateXML());
   makePolicy(extensionID);
 
-  console.log(`Build Extension with ID: ${extensionID}`)
-};
+  console.log(`Build Extension with ID: ${extensionID}`);
+}
 
 await main();

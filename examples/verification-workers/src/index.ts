@@ -14,7 +14,11 @@
 
 import {
 	Directory,
+	HTTP_MESSAGE_SIGNATURES_DIRECTORY,
+	MediaType,
+	Signer,
 	VerificationParams,
+	directoryResponseHeaders,
 	helpers,
 	jwkToKeyID,
 	signatureHeaders,
@@ -40,6 +44,10 @@ const getDirectory = async (): Promise<Directory> => {
 		keys: [key],
 		purpose: "rag",
 	};
+};
+
+const getSigner = async (): Promise<Signer> => {
+	return Ed25519Signer.fromJWK(jwk);
 };
 
 async function verifyEd25519(
@@ -84,12 +92,18 @@ export default {
 			);
 		}
 
-		if (
-			url.pathname.startsWith("/.well-known/http-message-signatures-directory")
-		) {
-			return new Response(JSON.stringify(await getDirectory()), {
+		if (url.pathname.startsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {
+			const directory = await getDirectory();
+
+			const signedHeaders = await directoryResponseHeaders(
+				request,
+				[await getSigner()],
+				{ created: new Date(), expires: new Date(Date.now() + 300_000) }
+			);
+			return new Response(JSON.stringify(directory), {
 				headers: {
-					"content-type": "application/http-message-signatures-directory",
+					...signedHeaders,
+					"content-type": MediaType.HTTP_MESSAGE_SIGNATURES_DIRECTORY,
 				},
 			});
 		}
@@ -118,11 +132,10 @@ export default {
 		const request = new Request(env.TARGET_URL, { headers });
 		const created = new Date(ctx.scheduledTime);
 		const expires = new Date(created.getTime() + 300_000);
-		const signedHeaders = await signatureHeaders(
-			request,
-			await Ed25519Signer.fromJWK(jwk),
-			{ created, expires }
-		);
+		const signedHeaders = await signatureHeaders(request, await getSigner(), {
+			created,
+			expires,
+		});
 		await fetch(
 			new Request(request.url, {
 				headers: {
