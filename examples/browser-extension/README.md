@@ -20,39 +20,50 @@ Chrome browser extension adding HTTP Message Signature on all outgoing requests 
 
 ## Usage
 
-If you don't have one, generate a signing key for your extension
+Compile the code of the extension:
 
 ```shell
-npm run generate-signing-key
+npm run build:chrome
 ```
 
-Then build, bundle, and sign the Chrome extension
+Bundle and sign the Chrome extension:
 
 ```shell
 npm run bundle:chrome
 ```
 
-This extension requires an [entreprise policy](https://support.google.com/chrome/a/answer/187202?hl=en) to be configured on your Chrome. It requires that you configure your Chrome instance with a policy to force install the extension.
+This command creates the folder `dist` with both the unpacked and packed (.crx) Chrome extension.
 
-In a distinct terminal, run `npm run start:config`. This ensures Chrome can install your extension.
+## Installing Extension from Sources
 
-On Linux
+This extension requires the [webRequestBlocking](https://developer.chrome.com/docs/extensions/reference/api/webRequest) permission, which in turn requires of an [Enterprise policy](https://support.google.com/chrome/a/answer/187202?hl=en) to be configured on Chrome.
+
+Follow these steps to configure Chrome with such a policy and force it to install the extension locally.
+First, run in another terminal:
+
+```shell
+npm run start:config
+```
+
+This starts a server at http://localhost:8000 for installing extension locally.
+
+Then, copy the policy file in the correspondent system path:
+
+On Linux:
 
 ```shell
 mkdir -p /etc/opt/chrome/policies/managed
-cp config/chromium/policy.json /etc/opt/chrome/policies/managed/policy.json
+cp policy/policy.json /etc/opt/chrome/policies/managed/policy.json
 ```
 
-On macOS
+On MacOS:
 
 ```shell
 mkdir -p /Library/Managed\ Preferences/
-cp config/chromium/com.google.Chrome.managed.plist /Library/Managed\ Preferences/
+cp policy/com.google.Chrome.managed.plist /Library/Managed\ Preferences/
 ```
 
-You can confirm the policy is installed by navigating to `chrome://policy/`.
-
-> You might have to change the forced_install ID. To find the ID of your extension, drag and drop it in Chrome, look at the ID, then replace instances of `fkgomfknhcfpepcgkimebggnfgkbghii`
+You can confirm the policy is installed by navigating to [chrome://policy/](chrome://policy/) and make sure to reload the policies.
 
 ## Security Considerations
 

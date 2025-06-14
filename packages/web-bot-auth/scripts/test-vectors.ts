@@ -9,7 +9,7 @@ const { signerFromJWK } = await import("../src/crypto.ts");
 
 const fs = await import("fs");
 
-const SIGNATURE_AGENT_DOMAIN = "signature-agent.test";
+const SIGNATURE_AGENT_HEADER = "https://signature-agent.test";
 const ORIGIN_URL = "https://example.com/path/to/resource";
 
 interface TestVector {
@@ -43,7 +43,7 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
   const nonceWithAgent = generateNonce();
   const labelWithAgent = "sig2";
   request = new Request(ORIGIN_URL, {
-    headers: { "Signature-Agent": SIGNATURE_AGENT_DOMAIN },
+    headers: { "Signature-Agent": JSON.stringify(SIGNATURE_AGENT_HEADER) },
   });
   const signedHeadersWithAgent = await signatureHeaders(request, signer, {
     created,
@@ -72,7 +72,7 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
       label: labelWithAgent,
       signature: signedHeadersWithAgent["Signature"],
       signature_input: signedHeadersWithAgent["Signature-Input"],
-      signature_agent: SIGNATURE_AGENT_DOMAIN,
+      signature_agent: request.headers.get("Signature-Agent"),
     },
   ];
 }
