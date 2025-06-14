@@ -1,5 +1,5 @@
 use crate::components::CoveredComponent;
-use crate::keyring::{KeyRing, PublicKey};
+use crate::keyring::KeyRing;
 use indexmap::IndexMap;
 use sfv::SerializeValue;
 use std::fmt;
@@ -292,7 +292,7 @@ impl MessageSigner {
         &self,
         message: &mut impl UnsignedMessage,
         expires: Duration,
-        signing_key: &PublicKey,
+        signing_key: &Vec<u8>,
     ) -> Result<(), ImplementationError> {
         let components_to_cover = message.fetch_components_to_cover();
         let mut sfv_parameters = sfv::Parameters::new();
