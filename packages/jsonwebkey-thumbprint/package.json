@@ -1,6 +1,6 @@
 {
   "name": "jsonwebkey-thumbprint",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "description": "JWK Thumbprint defined by RFC 7638",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

@@ -1,6 +1,6 @@
 {
   "name": "http-message-sig",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "description": "HTTP Message Signatures defined by RFC 9421",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
