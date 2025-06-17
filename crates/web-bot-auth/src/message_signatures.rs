@@ -249,7 +249,7 @@ pub trait SignedMessage {
     /// `CoveredComponent::HTTP` fields are guaranteed to have lowercase ASCII names, so
     /// care should be taken to ensure HTTP field names in the message are checked in a
     /// case-insensitive way. HTTP fields with multiple values should be combined into a
-    /// single string in the manner described in https://www.rfc-editor.org/rfc/rfc9421#name-http-fields.
+    /// single string in the manner described in <https://www.rfc-editor.org/rfc/rfc9421#name-http-fields>.
     fn lookup_component(&self, name: &CoveredComponent) -> Option<String>;
 }
 
@@ -558,7 +558,7 @@ impl MessageVerifier {
                 let verification = Instant::now();
                 verifying_key
                     .verify(base_representation.as_bytes(), &sig)
-                    .map_err(|_| ImplementationError::FailedToVerify)
+                    .map_err(ImplementationError::FailedToVerify)
                     .map(|()| SignatureTiming {
                         generation,
                         verification: verification.elapsed(),

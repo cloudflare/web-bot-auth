@@ -1,0 +1,20 @@
+[package]
+name = "http-signature-directory"
+description = "Validate if your JWKS directories meet web-bot-auth standards"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { version = "4.5.40", features = ["derive"] }
+reqwest = { version = "0.12.20", features = ["blocking", "json"] }
+web-bot-auth = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sfv = { workspace = true }

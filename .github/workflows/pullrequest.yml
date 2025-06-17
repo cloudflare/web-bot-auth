@@ -50,7 +50,7 @@ jobs:
         run: rustup override set 1.87 && rustup component add clippy rustfmt && rustup target add wasm32-unknown-unknown
       - run: cargo fetch
       - run: cargo build --all --verbose --exclude plexi-cli --all-features --tests
-      - run: cargo build --all --verbose --exclude plexi-cli --all-features --tests --target wasm32-unknown-unknown
+      - run: cargo build --all --verbose --exclude plexi-cli --exclude http-signature-directory --all-features --tests --target wasm32-unknown-unknown
       - run: cargo check --tests --examples --benches --all-features
       - run: cargo clippy --all-features --all-targets -- -D warnings
       - run: cargo fmt --all -- --check

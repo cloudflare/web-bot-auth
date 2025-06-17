@@ -66,7 +66,7 @@ pub enum ImplementationError {
     InvalidSignatureLength,
     /// Verification of a parsed signature against a resolved key failed, indicating
     /// the signature was invalid.
-    FailedToVerify,
+    FailedToVerify(ed25519_dalek::SignatureError),
     /// A valid signature base must contain only ASCII characters; this error is thrown
     /// if that's not the case. This may be thrown if some of the headers included in
     /// covered components contained non-ASCII characters, for example. This will be thrown
