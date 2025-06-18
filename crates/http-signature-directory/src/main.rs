@@ -1,4 +1,9 @@
+// Copyright (c) 2025 Cloudflare, Inc.
+// Licensed under the Apache 2.0 license found in the LICENSE file or at:
+//     https://opensource.org/licenses/Apache-2.0
+
 use clap::Parser;
+use log::{debug, info};
 use reqwest::{
     Url,
     blocking::Client,
@@ -15,7 +20,7 @@ const MIME_TYPE: &str = "application/http-message-signatures-directory+json";
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// URL pointing to your JSON Web Key Set
+    /// URL pointing to your HTTP Message Signature JSON Web Key Set e.g. `https://example.com/.well-known/http-message-signatures-directory`
     url: String,
 }
 
@@ -43,6 +48,7 @@ impl SignedMessage for SignedDirectory {
 }
 
 fn main() -> Result<(), String> {
+    env_logger::init();
     let cli = Cli::parse();
     let url =
         Url::parse(cli.url.as_str()).map_err(|error| format!("URL parsing error: {:?}", error))?;
@@ -59,7 +65,7 @@ fn main() -> Result<(), String> {
 
     let authority = url.authority();
 
-    println!(
+    debug!(
         "Extracted the following @authority component: {:?}",
         authority
     );
@@ -90,7 +96,7 @@ fn main() -> Result<(), String> {
         .filter_map(|header| header.to_str().map(String::from).ok())
         .collect();
 
-    println!(
+    debug!(
         "Found the following Signature headers: {:?}",
         signature_headers
     );
@@ -102,7 +108,7 @@ fn main() -> Result<(), String> {
         .filter_map(|header| header.to_str().map(String::from).ok())
         .collect();
 
-    println!(
+    debug!(
         "Found the following Signature-Input headers: {:?}",
         signature_inputs
     );
@@ -120,10 +126,10 @@ fn main() -> Result<(), String> {
 
     for (index, key) in json_web_key_set.keys.iter().enumerate() {
         let thumbprint = key.b64_thumbprint();
-        println!("Analyzing key with thumbprint {}", thumbprint);
+        info!("Analyzing key with thumbprint {}", thumbprint);
         if let Thumbprintable::OKP { crv, x } = key {
             if *crv == "Ed25519" {
-                println!("Found Ed25519 key");
+                info!("Key was identified as an Ed25519 key");
                 let import_error = import_errors.get(index).ok_or(format!(
                     "Could not import key with encoded public key {}",
                     x
@@ -191,7 +197,7 @@ fn main() -> Result<(), String> {
         }
     }
 
-    println!("Valid!");
+    println!("HTTP signature directory is valid!");
 
     Ok(())
 }

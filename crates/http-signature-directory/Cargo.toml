@@ -4,7 +4,7 @@ description = "Validate if your JWKS directories meet web-bot-auth standards"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-readme.workspace = true
+readme = "README.md"
 homepage.workspace = true
 repository.workspace = true
 keywords.workspace = true
@@ -18,3 +18,5 @@ web-bot-auth = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sfv = { workspace = true }
+env_logger = "0.11.8"
+log = "0.4.27"
