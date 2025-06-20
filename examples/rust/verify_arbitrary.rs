@@ -14,7 +14,7 @@
 
 use web_bot_auth::{
     components::{CoveredComponent, DerivedComponent},
-    keyring::KeyRing,
+    keyring::{Algorithm, KeyRing},
     message_signatures::{MessageVerifier, SignedMessage},
 };
 
@@ -47,10 +47,11 @@ fn main() {
     let mut keyring = KeyRing::default();
     keyring.import_raw(
         "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+        Algorithm::Ed25519,
         public_key.to_vec(),
     );
     let test = MySignedMsg {};
-    let verifier = MessageVerifier::parse(&test, None, |_| true).unwrap();
+    let verifier = MessageVerifier::parse(&test, |_| true).unwrap();
     let advisory = verifier.get_details().possibly_insecure(|_| false);
     // Since the expiry date is in the past.
     assert!(advisory.is_expired.unwrap_or(true));

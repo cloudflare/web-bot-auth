@@ -26,12 +26,10 @@ pub mod keyring;
 pub mod message_signatures;
 
 use components::CoveredComponent;
-use message_signatures::{
-    Algorithm, MessageVerifier, ParameterDetails, SignatureTiming, SignedMessage,
-};
+use message_signatures::{MessageVerifier, ParameterDetails, SignatureTiming, SignedMessage};
 
 use data_url::DataUrl;
-use keyring::{JSONWebKeySet, KeyRing};
+use keyring::{Algorithm, JSONWebKeySet, KeyRing};
 use std::time::SystemTimeError;
 
 /// Errors that may be thrown by this module.
@@ -54,7 +52,7 @@ pub enum ImplementationError {
     /// that isn't currently supported by this implementation. The subset
     /// of [registered IANA signature algorithms](https://www.iana.org/assignments/http-message-signature/http-message-signature.xhtml)
     /// implemented here is provided by `Algorithms` struct.
-    UnsupportedAlgorithm,
+    UnsupportedAlgorithm(Algorithm),
     /// An attempt to resolve key identifier to a valid public key failed.
     /// This prevents message verification.
     NoSuchKey,
@@ -129,13 +127,10 @@ impl WebBotAuthVerifier {
     /// # Errors
     ///
     /// Returns `ImplementationErrors` relevant to verifying and parsing.
-    pub fn parse(
-        message: &impl WebBotAuthSignedMessage,
-        algorithm: Option<Algorithm>,
-    ) -> Result<Self, ImplementationError> {
+    pub fn parse(message: &impl WebBotAuthSignedMessage) -> Result<Self, ImplementationError> {
         let signature_agents = message.fetch_all_signature_agents();
         let web_bot_auth_verifier = Self {
-            message_verifier: MessageVerifier::parse(message, algorithm, |(_, innerlist)| {
+            message_verifier: MessageVerifier::parse(message, |(_, innerlist)| {
                 innerlist.params.contains_key("keyid")
                     && innerlist.params.contains_key("tag")
                     && innerlist.params.contains_key("expires")
@@ -219,7 +214,7 @@ impl WebBotAuthVerifier {
 
     /// Retrieve the parsed `ParameterDetails` from the message. Useful for logging
     /// information about the message.
-    pub fn get_details(&self) -> ParameterDetails {
+    pub fn get_details(&self) -> &ParameterDetails {
         self.message_verifier.get_details()
     }
 }
@@ -268,9 +263,10 @@ mod tests {
         let mut keyring = KeyRing::default();
         keyring.import_raw(
             "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
             public_key.to_vec(),
         );
-        let verifier = WebBotAuthVerifier::parse(&test, None).unwrap();
+        let verifier = WebBotAuthVerifier::parse(&test).unwrap();
         let advisory = verifier.get_details().possibly_insecure(|_| false);
         // Since the expiry date is in the past.
         assert!(advisory.is_expired.unwrap_or(true));
@@ -343,11 +339,11 @@ mod tests {
         let mut keyring = KeyRing::default();
         keyring.import_raw(
             "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
             public_key.to_vec(),
         );
 
         let signer = message_signatures::MessageSigner {
-            algorithm: Algorithm::Ed25519,
             keyid: "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".into(),
             nonce: "end-to-end-test".into(),
             tag: "web-bot-auth".into(),
@@ -362,11 +358,12 @@ mod tests {
             .generate_signature_headers_content(
                 &mut mytest,
                 std::time::Duration::from_secs(10),
+                Algorithm::Ed25519,
                 &private_key.to_vec(),
             )
             .unwrap();
 
-        let verifier = WebBotAuthVerifier::parse(&mytest, None).unwrap();
+        let verifier = WebBotAuthVerifier::parse(&mytest).unwrap();
         let advisory = verifier.get_details().possibly_insecure(|_| false);
         assert!(!advisory.is_expired.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
@@ -406,7 +403,7 @@ mod tests {
         }
 
         let test = MissingParametersTestVector {};
-        WebBotAuthVerifier::parse(&test, None).expect_err("This should not have parsed");
+        WebBotAuthVerifier::parse(&test).expect_err("This should not have parsed");
     }
 
     #[test]
@@ -437,7 +434,7 @@ mod tests {
         }
 
         let test = MissingParametersTestVector {};
-        WebBotAuthVerifier::parse(&test, None).expect_err("This should not have parsed");
+        WebBotAuthVerifier::parse(&test).expect_err("This should not have parsed");
     }
 
     #[test]
@@ -481,11 +478,12 @@ mod tests {
         let mut keyring = KeyRing::default();
         keyring.import_raw(
             "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
             public_key.to_vec(),
         );
 
         let test = StandardTestVector {};
-        let verifier = WebBotAuthVerifier::parse(&test, None).unwrap();
+        let verifier = WebBotAuthVerifier::parse(&test).unwrap();
         let timing = verifier.verify(&keyring, None).unwrap();
         assert!(timing.generation.as_nanos() > 0);
         assert!(timing.verification.as_nanos() > 0);

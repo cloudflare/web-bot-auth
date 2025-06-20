@@ -16,7 +16,8 @@ use indexmap::IndexMap;
 use std::{time::Duration, vec};
 use web_bot_auth::{
     components::{CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParametersSet},
-    message_signatures::{Algorithm, MessageSigner, UnsignedMessage},
+    keyring::Algorithm,
+    message_signatures::{MessageSigner, UnsignedMessage},
 };
 
 #[derive(Debug, Default)]
@@ -56,14 +57,18 @@ fn main() {
         0x29, 0xc5,
     ];
     let signer = MessageSigner {
-        algorithm: Algorithm::Ed25519,
         keyid: "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".into(),
         nonce: "ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==".into(),
         tag: "web-bot-auth".into(),
     };
     let mut headers = MyThing::default();
     signer
-        .generate_signature_headers_content(&mut headers, Duration::from_secs(10), &private_key)
+        .generate_signature_headers_content(
+            &mut headers,
+            Duration::from_secs(10),
+            Algorithm::Ed25519,
+            &private_key,
+        )
         .unwrap();
 
     assert!(!headers.signature_input.is_empty());

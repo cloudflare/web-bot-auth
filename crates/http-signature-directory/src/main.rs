@@ -12,7 +12,7 @@ use reqwest::{
 use web_bot_auth::{
     components::{CoveredComponent, DerivedComponent},
     keyring::{JSONWebKeySet, KeyRing, Thumbprintable},
-    message_signatures::{Algorithm, MessageVerifier, SignedMessage},
+    message_signatures::{MessageVerifier, SignedMessage},
 };
 
 const MIME_TYPE: &str = "application/http-message-signatures-directory+json";
@@ -148,7 +148,6 @@ fn main() -> Result<(), String> {
 
                 let verifier = MessageVerifier::parse(
                     &directory,
-                    Some(Algorithm::Ed25519),
                     |(_, innerlist)| {
                         innerlist.params.contains_key("expires")
                             && innerlist.params.contains_key("created")
@@ -158,13 +157,6 @@ fn main() -> Result<(), String> {
                                 .and_then(|tag| tag.as_string())
                                 .is_some_and(|tag| {
                                     tag.as_str() == "http-message-signatures-directory"
-                                })
-                            && innerlist
-                                .params
-                                .get("alg")
-                                .and_then(|tag| tag.as_string())
-                                .is_some_and(|tag| {
-                                    tag.as_str() == "ed25519"
                                 })
                             && innerlist
                                 .params

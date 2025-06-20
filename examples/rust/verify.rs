@@ -15,7 +15,7 @@
 use web_bot_auth::{
     SignatureAgentLink, WebBotAuthSignedMessage, WebBotAuthVerifier,
     components::{CoveredComponent, DerivedComponent, HTTPField},
-    keyring::KeyRing,
+    keyring::{Algorithm, KeyRing},
     message_signatures::SignedMessage,
 };
 
@@ -60,10 +60,11 @@ fn main() {
     let mut keyring = KeyRing::default();
     keyring.import_raw(
         "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+        Algorithm::Ed25519,
         public_key.to_vec(),
     );
     let test = MySignedMsg {};
-    let verifier = WebBotAuthVerifier::parse(&test, None).unwrap();
+    let verifier = WebBotAuthVerifier::parse(&test).unwrap();
     let advisory = verifier.get_details().possibly_insecure(|_| false);
     for url in verifier.get_signature_agents().iter() {
         assert_eq!(

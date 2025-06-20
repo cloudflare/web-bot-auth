@@ -1,17 +1,18 @@
 use crate::components::CoveredComponent;
-use crate::keyring::KeyRing;
+use crate::keyring::{Algorithm, KeyRing};
 use indexmap::IndexMap;
 use sfv::SerializeValue;
-use std::fmt;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::ImplementationError;
 
+/// The component parameters associated with the signature in `Signature-Input`
 #[derive(Clone, Debug)]
-struct SignatureParams {
+pub struct SignatureParams {
     raw: sfv::Parameters,
-    details: ParameterDetails,
+    /// Standard values obtained from the component parameters, such as created, etc.
+    pub details: ParameterDetails,
 }
 
 /// Parsed values from `Signature-Input` header.
@@ -48,6 +49,11 @@ impl From<sfv::Parameters> for SignatureParams {
                     parameter_details.algorithm = val.as_string().and_then(|algorithm_string| {
                         match algorithm_string.as_str() {
                             "ed25519" => Some(Algorithm::Ed25519),
+                            "rsa-pss-sha512" => Some(Algorithm::RsaPssSha512),
+                            "rsa-v1_5-sha256" => Some(Algorithm::RsaV1_5Sha256),
+                            "hmac-sha256" => Some(Algorithm::HmacSha256),
+                            "ecdsa-p256-sha256" => Some(Algorithm::EcdsaP256Sha256),
+                            "ecdsa-p384-sha384" => Some(Algorithm::EcdsaP384Sha384),
                             _ => None,
                         }
                     });
@@ -158,9 +164,11 @@ impl SignatureBaseBuilder {
 
 /// A representation of the signature base to be generated during verification and signing.
 #[derive(Clone, Debug)]
-struct SignatureBase {
-    components: IndexMap<CoveredComponent, String>,
-    parameters: SignatureParams,
+pub struct SignatureBase {
+    /// The components that have been covered and their found values
+    pub components: IndexMap<CoveredComponent, String>,
+    /// The component parameters associated with this message.
+    pub parameters: SignatureParams,
 }
 
 impl SignatureBase {
@@ -199,26 +207,6 @@ impl SignatureBase {
             Ok((output, signature_params_line))
         } else {
             Err(ImplementationError::NonAsciiContentFound)
-        }
-    }
-
-    fn get_details(&self) -> ParameterDetails {
-        self.parameters.details.clone()
-    }
-}
-
-/// Subset of [HTTP signature algorithm](https://www.iana.org/assignments/http-message-signature/http-message-signature.xhtml)
-/// implemented in this module. In the future, we may support more.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Algorithm {
-    /// [The `ed25519` algorithm](https://www.rfc-editor.org/rfc/rfc9421#name-eddsa-using-curve-edwards25)
-    Ed25519,
-}
-
-impl fmt::Display for Algorithm {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Algorithm::Ed25519 => write!(f, "ed25519"),
         }
     }
 }
@@ -271,8 +259,6 @@ pub trait UnsignedMessage {
 /// A struct that implements signing. The struct fields here are serialized into the `Signature-Input`
 /// header.
 pub struct MessageSigner {
-    /// Algorith mto use for signing
-    pub algorithm: Algorithm,
     /// Name to use for `keyid` parameter
     pub keyid: String,
     /// A random nonce to be provided for additional security
@@ -288,19 +274,16 @@ impl MessageSigner {
     /// # Errors
     ///
     /// Returns `ImplementationErrors` relevant to signing and parsing.
+    /// Returns an error if the algorithm chosen is not supported by this library.
     pub fn generate_signature_headers_content(
         &self,
         message: &mut impl UnsignedMessage,
         expires: Duration,
+        algorithm: Algorithm,
         signing_key: &Vec<u8>,
     ) -> Result<(), ImplementationError> {
         let components_to_cover = message.fetch_components_to_cover();
         let mut sfv_parameters = sfv::Parameters::new();
-
-        sfv_parameters.insert(
-            sfv::KeyRef::constant("alg").to_owned(),
-            sfv::BareItem::String(sfv::StringRef::constant(&self.algorithm.to_string()).to_owned()),
-        );
 
         sfv_parameters.insert(
             sfv::KeyRef::constant("keyid").to_owned(),
@@ -374,7 +357,7 @@ impl MessageSigner {
         }
         .into_ascii()?;
 
-        let signature = match self.algorithm {
+        let signature = match algorithm {
             Algorithm::Ed25519 => {
                 use ed25519_dalek::{Signer, SigningKey};
                 let signing_key_dalek = SigningKey::try_from(signing_key.as_slice())
@@ -388,6 +371,7 @@ impl MessageSigner {
                 }
                 .serialize_value()
             }
+            other => return Err(ImplementationError::UnsupportedAlgorithm(other)),
         };
 
         message.register_header_contents(signature_params_content, signature);
@@ -396,17 +380,23 @@ impl MessageSigner {
     }
 }
 
+/// A parsed representation of the signature and the components chosen to cover that
+/// signature, once `MessageVerifier` has parsed the message. This allows inspection
+/// of the chosen labl and its components.
 #[derive(Clone, Debug)]
-struct ParsedLabel {
-    signature: Vec<u8>,
-    base: SignatureBase,
+pub struct ParsedLabel {
+    /// The signature obtained from the message that verifiers will verify
+    pub signature: Vec<u8>,
+    /// The signature base obtained from the message, containining both the chosen
+    /// components to cover as well as any interesting parameters of the same.
+    pub base: SignatureBase,
 }
 
 /// A `MessageVerifier` performs the verifications needed for a signed message.
 #[derive(Clone, Debug)]
 pub struct MessageVerifier {
-    parsed: ParsedLabel,
-    algorithm: Algorithm,
+    /// Parsed version of the signature label chosen for this message.
+    pub parsed: ParsedLabel,
 }
 
 /// Micro-measurements of different parts of the process in a call to `verify()`.
@@ -421,19 +411,14 @@ pub struct SignatureTiming {
 
 impl MessageVerifier {
     /// Parse a message into a structure that is ready for verification against an
-    /// external key with a suitable algorithm. If `alg` is not set, a default will
-    /// be chosen from the `alg` parameter. `pick` is a predicate
+    /// external key with a suitable algorithm. `pick` is a predicate
     /// enabling you to choose which message label should be considered as the message to
     /// verify - if it is known only one signature is in the message, simply return true.
     ///
     /// # Errors
     ///
     /// Returns `ImplementationErrors` relevant to verifying and parsing.
-    pub fn parse<P>(
-        message: &impl SignedMessage,
-        alg: Option<Algorithm>,
-        pick: P,
-    ) -> Result<Self, ImplementationError>
+    pub fn parse<P>(message: &impl SignedMessage, pick: P) -> Result<Self, ImplementationError>
     where
         P: Fn(&(sfv::Key, sfv::InnerList)) -> bool,
     {
@@ -496,25 +481,15 @@ impl MessageVerifier {
         let builder = SignatureBaseBuilder::try_from(innerlist)?;
         let base = builder.into_signature_base(message)?;
 
-        let algorithm = match alg {
-            Some(algorithm) => algorithm,
-            None => base
-                .get_details()
-                .algorithm
-                .clone()
-                .ok_or(ImplementationError::UnsupportedAlgorithm)?,
-        };
-
         Ok(MessageVerifier {
             parsed: ParsedLabel { signature, base },
-            algorithm,
         })
     }
 
     /// Retrieve the parsed `ParameterDetails` from the message. Useful for logging
     /// information about the message.
-    pub fn get_details(&self) -> ParameterDetails {
-        self.parsed.base.parameters.details.clone()
+    pub fn get_details(&self) -> &ParameterDetails {
+        &self.parsed.base.parameters.details
     }
 
     /// Verify the messsage, consuming the verifier in the process.
@@ -546,10 +521,10 @@ impl MessageVerifier {
         let generation = Instant::now();
         let (base_representation, _) = self.parsed.base.into_ascii()?;
         let generation = generation.elapsed();
-        match self.algorithm {
+        match &keying_material.0 {
             Algorithm::Ed25519 => {
                 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-                let verifying_key = VerifyingKey::try_from(keying_material.as_slice())
+                let verifying_key = VerifyingKey::try_from(keying_material.1.as_slice())
                     .map_err(|_| ImplementationError::InvalidKeyLength)?;
 
                 let sig = Signature::try_from(self.parsed.signature.as_slice())
@@ -564,6 +539,7 @@ impl MessageVerifier {
                         verification: verification.elapsed(),
                     })
             }
+            other => Err(ImplementationError::UnsupportedAlgorithm(other.clone())),
         }
     }
 }
@@ -598,7 +574,7 @@ mod tests {
     #[test]
     fn test_parsing_as_http_signature() {
         let test = StandardTestVector {};
-        let verifier = MessageVerifier::parse(&test, None, |(_, _)| true).unwrap();
+        let verifier = MessageVerifier::parse(&test, |(_, _)| true).unwrap();
         let expected_signature_params = "(\"@authority\");created=1735689600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=1735693200;nonce=\"gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==\";tag=\"web-bot-auth\"";
         let expected_base = format!(
             "\"@authority\": example.com\n\"@signature-params\": {expected_signature_params}"
@@ -619,9 +595,10 @@ mod tests {
         let mut keyring = KeyRing::default();
         keyring.import_raw(
             "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
             public_key.to_vec(),
         );
-        let verifier = MessageVerifier::parse(&test, None, |(_, _)| true).unwrap();
+        let verifier = MessageVerifier::parse(&test, |(_, _)| true).unwrap();
         let timing = verifier.verify(&keyring, None).unwrap();
         assert!(timing.generation.as_nanos() > 0);
         assert!(timing.verification.as_nanos() > 0);
@@ -660,7 +637,6 @@ mod tests {
         }
 
         let signer = MessageSigner {
-            algorithm: Algorithm::Ed25519,
             keyid: "test".into(),
             nonce: "another-test".into(),
             tag: "web-bot-auth".into(),
@@ -679,6 +655,7 @@ mod tests {
                 .generate_signature_headers_content(
                     &mut test,
                     Duration::from_secs(10),
+                    Algorithm::Ed25519,
                     &private_key.to_vec()
                 )
                 .is_ok()
