@@ -52,7 +52,12 @@ fn main() {
     );
     let test = MySignedMsg {};
     let verifier = MessageVerifier::parse(&test, |_| true).unwrap();
-    let advisory = verifier.get_details().possibly_insecure(|_| false);
+    let advisory = verifier
+        .parsed
+        .base
+        .parameters
+        .details
+        .possibly_insecure(|_| false);
     // Since the expiry date is in the past.
     assert!(advisory.is_expired.unwrap_or(true));
     assert!(!advisory.nonce_is_invalid.unwrap_or(true));

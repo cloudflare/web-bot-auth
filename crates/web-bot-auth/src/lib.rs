@@ -26,7 +26,7 @@ pub mod keyring;
 pub mod message_signatures;
 
 use components::CoveredComponent;
-use message_signatures::{MessageVerifier, ParameterDetails, SignatureTiming, SignedMessage};
+use message_signatures::{MessageVerifier, ParsedLabel, SignatureTiming, SignedMessage};
 
 use data_url::DataUrl;
 use keyring::{Algorithm, JSONWebKeySet, KeyRing};
@@ -212,10 +212,10 @@ impl WebBotAuthVerifier {
         self.message_verifier.verify(keyring, key_id)
     }
 
-    /// Retrieve the parsed `ParameterDetails` from the message. Useful for logging
-    /// information about the message.
-    pub fn get_details(&self) -> &ParameterDetails {
-        self.message_verifier.get_details()
+    /// Retrieve the contents of the chosen signature and signature input label for
+    /// verification.
+    pub fn get_parsed_label(&self) -> &ParsedLabel {
+        &self.message_verifier.parsed
     }
 }
 
@@ -267,7 +267,12 @@ mod tests {
             public_key.to_vec(),
         );
         let verifier = WebBotAuthVerifier::parse(&test).unwrap();
-        let advisory = verifier.get_details().possibly_insecure(|_| false);
+        let advisory = verifier
+            .get_parsed_label()
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
         // Since the expiry date is in the past.
         assert!(advisory.is_expired.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
@@ -364,7 +369,12 @@ mod tests {
             .unwrap();
 
         let verifier = WebBotAuthVerifier::parse(&mytest).unwrap();
-        let advisory = verifier.get_details().possibly_insecure(|_| false);
+        let advisory = verifier
+            .get_parsed_label()
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
         assert!(!advisory.is_expired.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
 

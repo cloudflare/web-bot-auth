@@ -65,7 +65,12 @@ fn main() {
     );
     let test = MySignedMsg {};
     let verifier = WebBotAuthVerifier::parse(&test).unwrap();
-    let advisory = verifier.get_details().possibly_insecure(|_| false);
+    let advisory = verifier
+        .get_parsed_label()
+        .base
+        .parameters
+        .details
+        .possibly_insecure(|_| false);
     for url in verifier.get_signature_agents().iter() {
         assert_eq!(
             url,

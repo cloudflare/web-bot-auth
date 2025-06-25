@@ -10,7 +10,8 @@ use super::ImplementationError;
 /// The component parameters associated with the signature in `Signature-Input`
 #[derive(Clone, Debug)]
 pub struct SignatureParams {
-    raw: sfv::Parameters,
+    /// The raw signature parameters associated with this request.
+    pub raw: sfv::Parameters,
     /// Standard values obtained from the component parameters, such as created, etc.
     pub details: ParameterDetails,
 }
@@ -484,12 +485,6 @@ impl MessageVerifier {
         Ok(MessageVerifier {
             parsed: ParsedLabel { signature, base },
         })
-    }
-
-    /// Retrieve the parsed `ParameterDetails` from the message. Useful for logging
-    /// information about the message.
-    pub fn get_details(&self) -> &ParameterDetails {
-        &self.parsed.base.parameters.details
     }
 
     /// Verify the messsage, consuming the verifier in the process.

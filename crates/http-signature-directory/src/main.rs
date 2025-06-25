@@ -175,7 +175,12 @@ fn main() -> Result<(), String> {
                     )
                 })?;
 
-                let advisory = verifier.get_details().possibly_insecure(|_| false);
+                let advisory = verifier
+                    .parsed
+                    .base
+                    .parameters
+                    .details
+                    .possibly_insecure(|_| false);
                 // Since the expiry date is in the past.
                 if advisory.is_expired.unwrap_or(true) {
                     return Err(String::from(
