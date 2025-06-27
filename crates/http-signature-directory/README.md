@@ -37,18 +37,30 @@ Options:
   -V, --version  Print version
 
 
-$ http-signature-directory https://http-message-signatures-example.research.cloudflare.com/.well-known/http-message-signatures-directory
-HTTP signature directory is valid!
-
-# debug logging enabled
 $ RUST_LOG=debug http-signature-directory https://http-message-signatures-example.research.cloudflare.com/.well-known/http-message-signatures-directory
-[2025-06-18T13:23:57Z DEBUG http_signature_directory] Extracted the following @authority component: "http-message-signatures-example.research.cloudflare.com"
-[2025-06-18T13:23:57Z DEBUG reqwest::connect] starting new connection: https://http-message-signatures-example.research.cloudflare.com/
-[2025-06-18T13:23:58Z DEBUG http_signature_directory] Found the following Signature headers: ["binding0=:phQjWRDPBioZR672wQCWGSEChJUXk9zUiWNQlqLw1HVRjGw+n0xefZA0nqk4GbHUSpEKntvpGqfJSn0iqdGfCw==:"]
-[2025-06-18T13:23:58Z DEBUG http_signature_directory] Found the following Signature-Input headers: ["binding0=(\"@authority\");created=1750253037;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=1750253337;tag=\"http-message-signatures-directory\""]
-[2025-06-18T13:23:58Z INFO  http_signature_directory] Analyzing key with thumbprint poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U
-[2025-06-18T13:23:58Z INFO  http_signature_directory] Key was identified as an Ed25519 key
-HTTP signature directory is valid!
+[2025-06-27T16:10:36Z DEBUG http_signature_directory] Extracted the following @authority component: "http-message-signatures-example.research.cloudflare.com"
+[2025-06-27T16:10:36Z DEBUG reqwest::connect] starting new connection: https://http-message-signatures-example.research.cloudflare.com/
+[2025-06-27T16:10:36Z DEBUG http_signature_directory] Found the following Signature headers: ["binding0=:kgzhyjU+BoBv/I0xF5vGipUbYL4CqNA5G1fxPk61bC3ZBxjM3PnwcySgHzFCSbX5d5DU8Mjd8l/O3Nl4yV0gCw==:"]
+[2025-06-27T16:10:36Z DEBUG http_signature_directory] Found the following Signature-Input headers: ["binding0=(\"@authority\");created=1751040636;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=1751040936;tag=\"http-message-signatures-directory\""]
+[2025-06-27T16:10:36Z INFO  http_signature_directory] Analyzing key with thumbprint poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U
+[2025-06-27T16:10:36Z INFO  http_signature_directory] Key was identified as an Ed25519 key
+{
+  "success": true,
+  "message": "HTTP signature directory is valid!",
+  "details": {
+    "url": "https://http-message-signatures-example.research.cloudflare.com/.well-known/http-message-signatures-directory",
+    "keys_count": 1,
+    "validated_keys": [
+      {
+        "thumbprint": "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U",
+        "valid": true,
+        "signature_verified": true,
+        "error": null
+      }
+    ],
+    "errors": [],
+    "warnings": []
+  }
 ```
 
 ## Security Considerations
