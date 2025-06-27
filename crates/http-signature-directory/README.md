@@ -55,12 +55,18 @@ $ RUST_LOG=debug http-signature-directory https://http-message-signatures-exampl
         "thumbprint": "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U",
         "valid": true,
         "signature_verified": true,
+        "raw_key_data": {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"
+        },
         "error": null
       }
     ],
     "errors": [],
     "warnings": []
   }
+}
 ```
 
 ## Security Considerations

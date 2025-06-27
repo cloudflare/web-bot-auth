@@ -46,7 +46,15 @@ struct KeyValidationInfo {
     thumbprint: String,
     valid: bool, // Checks if the key structure is valid (correct key type, curve is Ed25519, import succeeds)
     signature_verified: bool, // Checks if the HTTP signature on the directory response is cryptographically valid using this key
+    raw_key_data: Option<RawKeyData>,
     error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RawKeyData {
+    kty: String,
+    crv: String,
+    x: String,
 }
 
 struct SignedDirectory {
@@ -219,6 +227,7 @@ fn main() -> Result<(), String> {
             thumbprint: thumbprint.clone(),
             valid: false,
             signature_verified: false,
+            raw_key_data: None,
             error: None,
         };
 
@@ -278,6 +287,11 @@ fn main() -> Result<(), String> {
                                 match verifier.verify(&keyring, None) {
                                     Ok(_) => {
                                         key_info.signature_verified = true;
+                                        key_info.raw_key_data = Some(RawKeyData {
+                                            kty: "OKP".to_string(),
+                                            crv: crv.to_string(),
+                                            x: x.to_string(),
+                                        });
                                     }
                                     Err(err) => {
                                         key_info.error = Some(format!(
