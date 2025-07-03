@@ -28,13 +28,14 @@ More concrete examples are provided on [cloudflareresearch/web-bot-auth/examples
 ### Signing
 
 ```typescript
-import { Algorithm, signatureHeaders } from "web-bot-auth";
+import { signatureHeaders } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 
-// The following simple request ios going to be signed
-const request = new Request("https://example.com");
+// The following simple request is going to be signed
+const request = new Request("https://http-message-signatures-example.research.cloudflare.com/debug");
 
-// available at https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
+// This is a testing-only private key/public key pair described in RFC 9421
+// Also available at https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
 const RFC_9421_ED25519_TEST_KEY = {
   kty: "OKP",
   crv: "Ed25519",
@@ -43,7 +44,8 @@ const RFC_9421_ED25519_TEST_KEY = {
   x: "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
 };
 
-const headers = signatureHeaders(
+const now = new Date();
+const headers = await signatureHeaders(
   request,
   await signerFromJWK(RFC_9421_ED25519_TEST_KEY),
   {
@@ -53,7 +55,7 @@ const headers = signatureHeaders(
 );
 
 // Et voila! Here is our signed request
-const signedRequest = new Request("https://example.com", {
+const signedRequest = new Request("https://http-message-signatures-example.research.cloudflare.com/debug", {
   headers: {
     Signature: headers["Signature"],
     "Signature-Input": headers["Signature-Input"],
