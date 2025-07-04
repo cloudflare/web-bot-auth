@@ -25,6 +25,10 @@ Web Bot Authentication defined by [draft-meunier-web-bot-auth-architecture](http
 This section provides examples usage for signing and verifying web-bot-auth material.
 More concrete examples are provided on [cloudflareresearch/web-bot-auth/examples](https://github.com/cloudflareresearch/web-bot-auth#examples).
 
+### Research server for debug purposes
+
+To help debug `web-both-auth` HTTPS requests, Cloudflare Research provides a test endpoint on `https://http-message-signatures-example.research.cloudflare.com/debug`. You may also run this [research server's code on GitHub](https://github.com/cloudflare/web-bot-auth/tree/main/examples/verification-workers) on a local endpoint.
+
 ### Signing
 
 ```typescript
@@ -32,9 +36,9 @@ import { signatureHeaders } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 
 // The following simple request is going to be signed
-const request = new Request("https://http-message-signatures-example.research.cloudflare.com/debug");
+const request = new Request("https://example.com");
 
-// This is a testing-only private key/public key pair described in RFC 9421
+// This is a testing-only private key/public key pair described in RFC 9421 Appendix B.1.4
 // Also available at https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
 const RFC_9421_ED25519_TEST_KEY = {
   kty: "OKP",
@@ -54,8 +58,8 @@ const headers = await signatureHeaders(
   }
 );
 
-// Et voila! Here is our signed request
-const signedRequest = new Request("https://http-message-signatures-example.research.cloudflare.com/debug", {
+// Et voila! Here is our signed request.
+const signedRequest = new Request("https://example.com", {
   headers: {
     Signature: headers["Signature"],
     "Signature-Input": headers["Signature-Input"],
