@@ -1,6 +1,6 @@
 {
   "name": "web-bot-auth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Web Bot Authentication using HTTP Message Signatures",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
