@@ -30,6 +30,7 @@ export interface SignatureParams {
   expires: Date;
   nonce?: string;
   key?: string;
+  components?: httpsig.Component[];
 }
 
 export interface VerificationParams {
@@ -74,10 +75,19 @@ export function signatureHeaders<
     }
   }
   const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
-  let components: string[] = REQUEST_COMPONENTS;
-  // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
-  if (!signatureAgent) {
-    components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+  let components: string[] | undefined = params.components;
+  if(!components) {
+    // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
+    if (!signatureAgent) {
+      components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+    } else {
+      components = REQUEST_COMPONENTS
+    }
+  } else {
+    if(signatureAgent && components.indexOf("SIGNATURE_AGENT_HEADER") === -1)
+    {
+      throw new Error(`${SIGNATURE_AGENT_HEADER} is required in params.component when included as a header param`);
+    }
   }
   return httpsig.signatureHeaders(message, {
     signer,
@@ -110,10 +120,19 @@ export function signatureHeadersSync<
     }
   }
   const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
-  let components: string[] = REQUEST_COMPONENTS;
-  // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
-  if (!signatureAgent) {
-    components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+  let components: string[] | undefined = params.components;
+  if(!components) {
+    // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
+    if (!signatureAgent) {
+      components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+    } else {
+      components = REQUEST_COMPONENTS
+    }
+  } else {
+    if(signatureAgent && components.indexOf("SIGNATURE_AGENT_HEADER") === -1)
+    {
+      throw new Error(`${SIGNATURE_AGENT_HEADER} is required in params.component when included as a header param`);
+    }
   }
   return httpsig.signatureHeadersSync(message, {
     signer,
