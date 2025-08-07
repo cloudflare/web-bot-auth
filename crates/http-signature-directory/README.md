@@ -18,7 +18,6 @@ This is an opinionated validator:
 - [Security Considerations](#security-considerations)
 - [License](#license)
 
-
 ## Usage
 
 ```
