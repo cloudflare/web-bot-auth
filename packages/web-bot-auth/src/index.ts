@@ -7,6 +7,7 @@ export {
   type Signer,
   type SignerSync,
   type SignOptions,
+  type SignSyncOptions,
   Tag,
   directoryResponseHeaders,
 } from "http-message-sig";
@@ -60,9 +61,8 @@ function getSigningOptions<
   T extends httpsig.RequestLike | httpsig.ResponseLike,
 >(
   message: T,
-  signer: httpsig.Signer,
   params: SignatureParams
-): httpsig.SignOptions {
+): Omit<httpsig.SignOptions | httpsig.SignSyncOptions, "signer" | "keyid"> {
   if (params.created.getTime() > params.expires.getTime()) {
     throw new Error("created should happen before expires");
   }
@@ -94,12 +94,10 @@ function getSigningOptions<
   }
 
   return {
-    signer,
     components,
     created: params.created,
     expires: params.expires,
     nonce,
-    keyid: signer.keyid,
     key: params.key,
     tag: HTTP_MESSAGE_SIGNAGURE_TAG,
   };
@@ -114,7 +112,11 @@ export function signatureHeaders<
 ): Promise<httpsig.SignatureHeaders> {
   return httpsig.signatureHeaders(
     message,
-    getSigningOptions(message, signer, params)
+    {
+      signer,
+      keyid: signer.keyid,
+      ...getSigningOptions(message, params)
+    }
   );
 }
 
@@ -127,7 +129,11 @@ export function signatureHeadersSync<
 ): httpsig.SignatureHeaders {
   return httpsig.signatureHeadersSync(
     message,
-    getSigningOptions(message, signer, params)
+    {
+      signer,
+      keyid: signer.keyid,
+      ...getSigningOptions(message, params)
+    }
   );
 }
 
