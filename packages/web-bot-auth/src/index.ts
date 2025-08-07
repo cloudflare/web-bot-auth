@@ -110,14 +110,11 @@ export function signatureHeaders<
   signer: httpsig.Signer,
   params: SignatureParams
 ): Promise<httpsig.SignatureHeaders> {
-  return httpsig.signatureHeaders(
-    message,
-    {
-      signer,
-      keyid: signer.keyid,
-      ...getSigningOptions(message, params)
-    }
-  );
+  return httpsig.signatureHeaders(message, {
+    signer,
+    keyid: signer.keyid,
+    ...getSigningOptions(message, params),
+  });
 }
 
 export function signatureHeadersSync<
@@ -127,14 +124,11 @@ export function signatureHeadersSync<
   signer: httpsig.SignerSync,
   params: SignatureParams
 ): httpsig.SignatureHeaders {
-  return httpsig.signatureHeadersSync(
-    message,
-    {
-      signer,
-      keyid: signer.keyid,
-      ...getSigningOptions(message, params)
-    }
-  );
+  return httpsig.signatureHeadersSync(message, {
+    signer,
+    keyid: signer.keyid,
+    ...getSigningOptions(message, params),
+  });
 }
 
 export type Verify<T> = (
