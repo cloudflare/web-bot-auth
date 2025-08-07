@@ -43,13 +43,13 @@ This deployment allows to test your implementation.
 
 This repository uses [npm](https://docs.npmjs.com/cli/v11/using-npm/workspaces) and [cargo](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html) workspaces. There are several packages which it provides:
 
-| Package                                                    | Language   | Description                                                                            |
-| :--------------------------------------------------------- | :--------- | :------------------------------------------------------------------------------------- |
-| [http-message-sig](./packages/http-message-sig/)           | TypeScript | HTTP Message Signatures as defined in RFC 9421                                         |
-| [jsonwebkey-thumbprint](./packages/jsonwebkey-thumbprint/) | TypeScript | JWK Thumbprint as defined in RFC 7638                                                  |
-| [web-bot-auth](./packages/web-bot-auth/)                   | TypeScript | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
-| [web-bot-auth](./crates/web-bot-auth/)                     | Rust       | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
-| [http-signature-directory](./crates/http-signature-directory/)| Rust    | Validates whether an HTTP message signature directory is correctly signed and valid |
+| Package                                                        | Language   | Description                                                                            |
+| :------------------------------------------------------------- | :--------- | :------------------------------------------------------------------------------------- |
+| [http-message-sig](./packages/http-message-sig/)               | TypeScript | HTTP Message Signatures as defined in RFC 9421                                         |
+| [jsonwebkey-thumbprint](./packages/jsonwebkey-thumbprint/)     | TypeScript | JWK Thumbprint as defined in RFC 7638                                                  |
+| [web-bot-auth](./packages/web-bot-auth/)                       | TypeScript | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
+| [web-bot-auth](./crates/web-bot-auth/)                         | Rust       | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
+| [http-signature-directory](./crates/http-signature-directory/) | Rust       | Validates whether an HTTP message signature directory is correctly signed and valid    |
 
 ## Security Considerations
 

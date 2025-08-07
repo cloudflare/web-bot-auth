@@ -6,6 +6,8 @@ export {
   type SignatureHeaders,
   type Signer,
   type SignerSync,
+  type SignOptions,
+  type SignSyncOptions,
   Tag,
   directoryResponseHeaders,
 } from "http-message-sig";
@@ -30,6 +32,7 @@ export interface SignatureParams {
   expires: Date;
   nonce?: string;
   key?: string;
+  components?: httpsig.Component[];
 }
 
 export interface VerificationParams {
@@ -54,13 +57,12 @@ export function validateNonce(nonce: string): boolean {
   }
 }
 
-export function signatureHeaders<
+function getSigningOptions<
   T extends httpsig.RequestLike | httpsig.ResponseLike,
 >(
   message: T,
-  signer: httpsig.Signer,
   params: SignatureParams
-): Promise<httpsig.SignatureHeaders> {
+): Omit<httpsig.SignOptions | httpsig.SignSyncOptions, "signer" | "keyid"> {
   if (params.created.getTime() > params.expires.getTime()) {
     throw new Error("created should happen before expires");
   }
@@ -74,20 +76,44 @@ export function signatureHeaders<
     }
   }
   const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
-  let components: string[] = REQUEST_COMPONENTS;
-  // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
-  if (!signatureAgent) {
-    components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+  let components: string[];
+  if (!params.components) {
+    // `extractHeader` returns "" instead of throwing or null when the header does not exist
+    if (!signatureAgent) {
+      components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+    } else {
+      components = REQUEST_COMPONENTS;
+    }
+  } else {
+    if (signatureAgent && components.indexOf("SIGNATURE_AGENT_HEADER") === -1) {
+      throw new Error(
+        `${SIGNATURE_AGENT_HEADER} is required in params.component when included as a header param`
+      );
+    }
+    components = params.components;
   }
-  return httpsig.signatureHeaders(message, {
-    signer,
+
+  return {
     components,
     created: params.created,
     expires: params.expires,
     nonce,
-    keyid: signer.keyid,
     key: params.key,
     tag: HTTP_MESSAGE_SIGNAGURE_TAG,
+  };
+}
+
+export function signatureHeaders<
+  T extends httpsig.RequestLike | httpsig.ResponseLike,
+>(
+  message: T,
+  signer: httpsig.Signer,
+  params: SignatureParams
+): Promise<httpsig.SignatureHeaders> {
+  return httpsig.signatureHeaders(message, {
+    signer,
+    keyid: signer.keyid,
+    ...getSigningOptions(message, params),
   });
 }
 
@@ -98,31 +124,10 @@ export function signatureHeadersSync<
   signer: httpsig.SignerSync,
   params: SignatureParams
 ): httpsig.SignatureHeaders {
-  if (params.created.getTime() > params.expires.getTime()) {
-    throw new Error("created should happen before expires");
-  }
-  let nonce = params.nonce;
-  if (!nonce) {
-    nonce = generateNonce();
-  } else {
-    if (!validateNonce(nonce)) {
-      throw new Error("nonce is not a valid uint32");
-    }
-  }
-  const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
-  let components: string[] = REQUEST_COMPONENTS;
-  // not the ideal check, but extractHeader returns "" instead of throwing or null when the header does not exist
-  if (!signatureAgent) {
-    components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
-  }
   return httpsig.signatureHeadersSync(message, {
     signer,
-    components,
-    created: params.created,
-    expires: params.expires,
-    nonce,
     keyid: signer.keyid,
-    tag: HTTP_MESSAGE_SIGNAGURE_TAG,
+    ...getSigningOptions(message, params),
   });
 }
 
