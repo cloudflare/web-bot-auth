@@ -57,7 +57,7 @@ func NewValidator(keyData []byte) (*SignatureValidator, error) {
 		RequiredFields:       httpsig.Fields("@authority"),
 		RequiredMetadata:     httpsig.DefaultVerifyProfile.RequiredMetadata,
 		DisallowedMetadata:   []httpsig.Metadata{},
-		CreatedValidDuration: time.Minute * 5, // Signatures must have been created within within the last 5 minutes
+		CreatedValidDuration: time.Minute * 5, // Signatures must have been created within the last 5 minutes
 		DateFieldSkew:        time.Minute,     // If the created parameter is present, the Date header cannot be more than a minute off.
 	})
 	if err != nil {
