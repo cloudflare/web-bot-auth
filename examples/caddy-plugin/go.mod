@@ -1,11 +1,9 @@
 module github.com/cloudflareresearch/web-bot-auth/examples/caddy-plugin
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.1
 
 require (
-	github.com/caddyserver/caddy/v2 v2.10.0
+	github.com/caddyserver/caddy/v2 v2.10.2
 	github.com/remitly-oss/httpsig-go v1.2.0
 )
 
