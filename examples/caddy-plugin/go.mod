@@ -6,7 +6,7 @@ toolchain go1.24.2
 
 require (
 	github.com/caddyserver/caddy/v2 v2.10.0
-	github.com/remitly-oss/httpsig-go v1.1.3
+	github.com/remitly-oss/httpsig-go v1.2.0
 )
 
 require (
