@@ -165,3 +165,10 @@ export function verify<T>(
   };
   return httpsig.verify(message, v);
 }
+
+export function registryToURLs(registry: string): string[] {
+  return registry
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}

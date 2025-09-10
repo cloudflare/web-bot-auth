@@ -1,0 +1,15 @@
+[
+  {
+    "registry_txt": "https://example.com/.well-known/signature-agent-card",
+    "signature_agent_cards": [
+      "https://example.com/.well-known/signature-agent-card"
+    ]
+  },
+  {
+    "registry_txt": "https://bot1.example.com/.well-known/signature-agent-card\nhttps://bot2.example.com/.well-known/signature-agent-card",
+    "signature_agent_cards": [
+      "https://bot1.example.com/.well-known/signature-agent-card",
+      "https://bot2.example.com/.well-known/signature-agent-card"
+    ]
+  }
+]
