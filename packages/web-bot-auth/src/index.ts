@@ -2,6 +2,7 @@ import * as httpsig from "http-message-sig";
 export {
   HTTP_MESSAGE_SIGNATURES_DIRECTORY,
   type Algorithm,
+  type Directory,
   MediaType,
   type SignatureHeaders,
   type Signer,
@@ -163,8 +164,4 @@ export function verify<T>(
     return verifier(data, signature, vparams);
   };
   return httpsig.verify(message, v);
-}
-
-export interface Directory extends httpsig.Directory {
-  purpose: string;
 }
