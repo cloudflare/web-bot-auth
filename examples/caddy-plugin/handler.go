@@ -59,6 +59,7 @@ func NewValidator(keyData []byte) (*SignatureValidator, error) {
 		DisallowedMetadata:   []httpsig.Metadata{},
 		CreatedValidDuration: time.Minute * 5, // Signatures must have been created within the last 5 minutes
 		ExpiredSkew:          time.Minute,     // If the created parameter is present, the Date header cannot be more than a minute off.
+		SignatureLabel:       "sig1",          // Default signature label for Javascript signers
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating verifier: %w", err)
