@@ -108,6 +108,10 @@ export default {
 			});
 		}
 
+		if (url.pathname === "/test-registry.txt") {
+			return env.ASSETS.fetch(request);
+		}
+
 		if (request.headers.get("Signature") === null) {
 			return new Response(neutralHTML, {
 				headers: { "content-type": "text/html" },

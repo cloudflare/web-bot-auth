@@ -2,8 +2,9 @@
     route {
         # httpsig middleware is used here
         httpsig {
-            # This domain should have /.well-known/http-message-signatures-directory defined
-            directory_base http-message-signatures-example.research.cloudflare.com
+            registry "http://localhost:8787/test-registry.txt"
+            # You can specify multiple registries. All tags will be checked independantly
+            registry "http://example.test/another-registry.txt"
         }
         
         # Responds if signature is valid

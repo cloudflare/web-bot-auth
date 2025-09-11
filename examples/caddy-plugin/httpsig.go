@@ -16,13 +16,16 @@ package httpsig
 
 import (
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -36,14 +39,30 @@ func init() {
 }
 
 type Directory struct {
-	Keys    []json.RawMessage `json:"keys"`
-	Purpose *string           `json:"purpose,omitempty"`
+	Keys []json.RawMessage `json:"keys"`
+}
+
+type SignatureAgentCard struct {
+	Name                *string           `json:"name"`
+	Contact             *string           `json:"contact"`
+	Logo                *string           `json:"logo"`
+	ExpectedUserAgent   *string           `json:"expected-user-agent"`
+	RFC9309ProductToken *string           `json:"rfc9309-product-token"`
+	RFC9309Compliance   []string          `json:"rfc9309-compliance"`
+	Trigger             *string           `json:"trigger"`
+	Purpose             *string           `json:"purpose"`
+	TargetedContent     *string           `json:"targeted-content"`
+	RateControl         *string           `json:"rate-control"`
+	RateExpectation     *string           `json:"rate-expectation"`
+	KnownURLs           []string          `json:"known-urls"`
+	Keys                []json.RawMessage `json:"keys"`
 }
 
 // Middleware struct to hold the configuration for the handler
 type Middleware struct {
-	DirectoryBase string `json:"directory_base"`
-	validator     *SignatureValidator
+	RegistryURLs []string `json:"registry,omitempty"`
+	validator    []SignatureValidator
+	logger       *zap.Logger
 }
 
 // CaddyModule function to provide module information to Caddy
@@ -56,35 +75,97 @@ func (m Middleware) CaddyModule() caddy.ModuleInfo {
 
 // Provision method for setting up the validator with the public key
 func (m *Middleware) Provision(ctx caddy.Context) error {
-	// consider the case where the directory ios localhost
-	resp, err := http.Get("https://" + m.DirectoryBase + "/.well-known/http-message-signatures-directory")
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
+	m.logger = ctx.Logger()
 
-	var dir Directory
-	err = json.NewDecoder(resp.Body).Decode(&dir)
-	if err != nil {
-		return err
+	var signatureAgentCardURLs []string
+	for _, u := range m.RegistryURLs {
+		_, err := url.Parse(u)
+		if err != nil {
+			m.logger.Warn("failed to parse registry URL", zap.String("url", u), zap.Error(err))
+			continue
+		}
+
+		// here we only fetch the first registry, but we could fetch multiple and aggregate keys
+		resp, err := http.Get(m.RegistryURLs[0])
+		if err != nil {
+			m.logger.Warn("failed to fetch registry", zap.String("url", u), zap.Error(err))
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			m.logger.Warn("failed to fetch registry", zap.String("url", u), zap.Error(err))
+			continue
+		}
+
+		// read the body as text
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			m.logger.Warn("failed to read registry response", zap.Error(err))
+			continue
+		}
+		signatureAgentCardURLs = append(signatureAgentCardURLs, strings.Split(string(body), "\n")...)
 	}
 
-	validator, err := NewValidator(dir.Keys[0])
-	if err != nil {
-		return err
+	for _, u := range signatureAgentCardURLs {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		_, err := url.Parse(u)
+		if err != nil {
+			m.logger.Warn("failed to parse signature-agent card URL", zap.String("url", u), zap.Error(err))
+			continue
+		}
+
+		resp, err := http.Get(u)
+		if err != nil {
+			m.logger.Warn("failed to fetch signature-agent card", zap.String("url", u), zap.Error(err))
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			m.logger.Warn("failed to fetch signature-agent card", zap.String("url", u), zap.Error(err))
+			continue
+		}
+
+		var card SignatureAgentCard
+		err = json.NewDecoder(resp.Body).Decode(&card)
+		if err != nil {
+			m.logger.Warn("failed to decode signature-agent card", zap.String("url", u), zap.Error(err))
+			continue
+		}
+
+		if card.Keys == nil || len(card.Keys) == 0 {
+			m.logger.Warn("no keys found in the signature-agent card", zap.String("url", u))
+			continue
+		}
+
+		validator, err := NewValidator(card.Keys[0])
+		if err != nil {
+			m.logger.Warn("failed to create validator for signature-agent card", zap.String("url", u), zap.Error(err))
+			continue
+		}
+		m.validator = append(m.validator, *validator)
 	}
-	m.validator = validator
 	return nil
 }
 
 // ServeHTTP method to handle the request and validate the signature
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	if err := m.validator.Validate(r); err != nil {
-		fmt.Println(err)
-		http.Error(w, "Invalid HTTP signature", http.StatusUnauthorized)
-		return nil
+	var err error
+	for _, validator := range m.validator {
+		// Try to validate the request with each validator
+		err = validator.Validate(r)
+		if err == nil {
+			// If validation is successful, proceed to the next handler
+			return next.ServeHTTP(w, r)
+		}
 	}
-	return next.ServeHTTP(w, r)
+	m.logger.Info("Invalid HTTP signature", zap.Error(err))
+	http.Error(w, "Invalid HTTP signature", http.StatusUnauthorized)
+	return nil
 }
 
 // UnmarshalCaddyfile method to allow configuration via the Caddyfile
@@ -92,11 +173,11 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		for d.NextBlock(0) {
 			switch d.Val() {
-			case "directory_base":
+			case "registry":
 				if !d.NextArg() {
 					return d.ArgErr()
 				}
-				m.DirectoryBase = d.Val()
+				m.RegistryURLs = append(m.RegistryURLs, d.Val())
 			default:
 				return d.Errf("unknown option '%s'", d.Val())
 			}
