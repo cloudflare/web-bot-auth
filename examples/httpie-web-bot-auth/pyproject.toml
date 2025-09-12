@@ -1,0 +1,31 @@
+[project]
+name = "httpie-web-bot-auth"
+version = "0.1.0"
+description = "HTTPie plugin to sign requests using Web Bot Auth for Ed25519 keys"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Thibault Meunier", email = "mail@thibaultmeunier.com" }]
+dependencies = [
+    "bot-auth>=0.2.2",
+    "httpie>=3.2.4",
+    "requests>=2.32.5",
+    "typing-extensions>=4.15.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 88
+lint.select = ["E", "F", "W", "C90"]
+
+[tool.black]
+line-length = 88
+
+[dependency-groups]
+dev = ["black>=25.1.0", "ruff>=0.12.4"]
+
+[project.entry-points."httpie.plugins.transport.v1"]
+web_bot_auth = "httpie_web_bot_auth:WebBotAuthPlugin"
