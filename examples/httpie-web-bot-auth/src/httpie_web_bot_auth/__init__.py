@@ -18,26 +18,20 @@ class WebBotAuthAdapter(HTTPAdapter):
         """
         Intercepts the request, adds the signature header, and sends it.
         """
-        # Key is provided in WBA_KEY env variable
-        wba_key_path = os.getenv("WBA_KEY")
+        # Key is provided in HTTPIE_WBA_KEY env variable
+        wba_key_path = os.getenv("HTTPIE_WBA_KEY")
         if not wba_key_path:
-            raise ValueError("WBA_KEY environment variable not set. Please set it to a path to your Ed25519 private key in JWK format.")
+            raise ValueError("HTTPIE_WBA_KEY environment variable not set. Please set it to a path to your Ed25519 private key in JWK format.")
 
-        if not os.path.isfile(wba_key_path):
-            raise FileNotFoundError(f"WBA key file not found at {wba_key_path}")
-        
-        key = ""
         with open(wba_key_path, "r") as key_file:
-            key = key_file.read()
-        
-        key = json.loads(key)
+           key = json.load(key_file)
 
         wba = BotAuth(
             [key],
-            signAgent="http-message-signatures-example.research.cloudflare.com",
+            signAgent=request.headers.get('Signature-Agent'),
         )
         parsed_url = urlparse(request.url)
-        http_url_parts = parsed_url._replace(scheme='http')
+        http_url_parts = parsed_url._replace(scheme='http' if parsed_url.scheme in ['http', 'http+wba'] else 'https')
         request.url = urlunparse(http_url_parts)
 
         headers = wba.get_bot_signature_header(request)
@@ -50,10 +44,18 @@ class WebBotAuthAdapter(HTTPAdapter):
         return super().send(request, **kwargs)
 
 
-class WebBotAuthPlugin(TransportPlugin):
-    name = 'Web bot auth'
-    description = 'Signs requests using Web Bot Auth for Ed25519 keys'
+class WebBotAuthHTTPPlugin(TransportPlugin):
+    name = 'Web bot auth HTTP'
+    description = 'Signs HTTP requests using Web Bot Auth for Ed25519 keys'
     prefix = 'http+wba://'
+
+    def get_adapter(self):
+        return WebBotAuthAdapter()
+
+class WebBotAuthHTTPSPlugin(TransportPlugin):
+    name = 'Web bot auth HTTPS'
+    description = 'Signs HTTP requests using Web Bot Auth for Ed25519 keys'
+    prefix = 'https+wba://'
 
     def get_adapter(self):
         return WebBotAuthAdapter()

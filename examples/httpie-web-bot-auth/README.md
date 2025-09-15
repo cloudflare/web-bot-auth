@@ -10,9 +10,32 @@ Read the [story behind Web Bot Auth](https://blog.cloudflare.com/web-bot-auth/),
 
 ## Installation
 
-Install via `uv`
+Install `httpie` via [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+
+```shell
+uv venv
+
+source ./venv/bin/activate
+
+uv pip install httpie
+```
+
 ```shell
 httpie cli plugins install httpie-web-bot-auth
+```
+
+## Usage
+
+You should have a local key in a JSON-encoded JWK file.
+
+Set `HTTPIE_WBA_KEY` to a path to this file.
+
+Then make your request with `http+wba://`, or `https+wba://`.
+
+Example
+
+```shell
+HTTPIE_WBA_KEY="/path/to/jwk.json" http 'http+wba://example.com'
 ```
 
 ## Development
