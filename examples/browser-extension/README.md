@@ -63,7 +63,18 @@ mkdir -p /Library/Managed\ Preferences/
 cp policy/com.google.Chrome.managed.plist /Library/Managed\ Preferences/
 ```
 
-You can confirm the policy is installed by navigating to [chrome://policy/](chrome://policy/) and make sure to reload the policies.
+You can confirm the policy is installed by navigating to `chrome://policy` and make sure to reload the policies.
+
+## Debugging the Extension
+
+Extensions installed by an Enterprise policy do not enable the DevTools by default. To enable the DevTools, open the system's policy file and add the following entry:
+```
+"DeveloperToolsAvailability": 1
+```
+
+Once the new policy takes effect, you can navigate to `chrome://extensions` where you should see an `Inspect views` label in the extension's box,
+and a `service worker` link on the right of the label. Clicking the link will open the DevTools of the extension. If the link is absent,
+try reloading the policy under `chrome://policy`.
 
 ## Security Considerations
 
