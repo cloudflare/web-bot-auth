@@ -50,34 +50,104 @@ const getSigner = async (): Promise<Signer> => {
 	return Ed25519Signer.fromJWK(jwk);
 };
 
-async function verifyEd25519(
+function verifyEd25519(
+	directory: Directory
+): (
 	data: string,
 	signature: Uint8Array,
 	params: VerificationParams
-) {
-	// note that here we use getDirectory, but this is as simple as a fetch
-	const directory = await getDirectory();
+) => Promise<void> {
+	return async (data, signature, params) => {
+		// note that here we use getDirectory, but this is as simple as a fetch
+		const key = await crypto.subtle.importKey(
+			"jwk",
+			directory.keys[0],
+			{ name: "Ed25519" },
+			true,
+			["verify"]
+		);
 
-	const key = await crypto.subtle.importKey(
-		"jwk",
-		directory.keys[0],
-		{ name: "Ed25519" },
-		true,
-		["verify"]
-	);
+		const encodedData = new TextEncoder().encode(data);
 
-	const encodedData = new TextEncoder().encode(data);
+		const isValid = await crypto.subtle.verify(
+			{ name: "Ed25519" },
+			key,
+			signature,
+			encodedData
+		);
 
-	const isValid = await crypto.subtle.verify(
-		{ name: "Ed25519" },
-		key,
-		signature,
-		encodedData
-	);
+		if (!isValid) {
+			throw new Error("invalid signature");
+		}
+	};
+}
 
-	if (!isValid) {
-		throw new Error("invalid signature");
+const SignatureValidationStatus = {
+	NEUTRAL: "neutral",
+	INVALID: "invalid",
+	VALID: "valid",
+} as const;
+type SignatureValidationStatus =
+	(typeof SignatureValidationStatus)[keyof typeof SignatureValidationStatus];
+
+async function verifySignature(
+	env: Env,
+	request: Request
+): Promise<SignatureValidationStatus> {
+	if (request.headers.get("Signature") === null) {
+		return SignatureValidationStatus.NEUTRAL;
 	}
+
+	const signatureAgent = request.headers.get("Signature-Agent");
+	let directory: Directory;
+	if (signatureAgent && !signatureAgent.includes(env.SIGNATURE_AGENT)) {
+		// make "some" validatation of the Signature-Agent header before making a request
+		let parsed: string;
+		try {
+			parsed = JSON.parse(signatureAgent);
+			const url = new URL(parsed);
+			if (url.protocol !== "https:") {
+				throw new Error(
+					'The demo only supports "https:" scheme for Signature-Agent header'
+				);
+			}
+			if (url.pathname !== "/") {
+				throw new Error(
+					`Only support signature-agent at the root, got "${url.pathname}"`
+				);
+			}
+		} catch (_e) {
+			console.error(
+				`Failed to validate Signature-Agent header: ${signatureAgent}`
+			);
+			return SignatureValidationStatus.INVALID;
+		}
+		if (parsed.endsWith("/")) {
+			parsed = parsed.slice(0, -1);
+		}
+		console.log(
+			`Fetching \`Signature-Agent\` directory from: "${parsed}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}"`
+		);
+		directory = await fetch(
+			`${parsed}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`
+		).then((r) => r.json());
+	} else {
+		directory = await getDirectory();
+	}
+
+	try {
+		await verify(request, verifyEd25519(directory));
+	} catch (e) {
+		console.error(e);
+		return SignatureValidationStatus.INVALID;
+	}
+
+	console.log("Signature verified successfully");
+	if (signatureAgent) {
+		console.log(`Signature-Agent: "${signatureAgent}"`);
+	}
+
+	return SignatureValidationStatus.VALID;
 }
 
 export default {
@@ -90,6 +160,11 @@ export default {
 					.map(([key, value]) => `${key}: ${value}`)
 					.join("\n")
 			);
+		}
+
+		if (url.pathname.startsWith("/v0/api/verify")) {
+			const status = await verifySignature(env, request);
+			return new Response(status);
 		}
 
 		if (url.pathname.startsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {
@@ -108,23 +183,22 @@ export default {
 			});
 		}
 
-		if (request.headers.get("Signature") === null) {
-			return new Response(neutralHTML, {
-				headers: { "content-type": "text/html" },
-			});
+		const status = await verifySignature(request);
+		switch (status) {
+			case SignatureValidationStatus.NEUTRAL:
+				return new Response(neutralHTML, {
+					headers: { "content-type": "text/html; charset=utf-8" },
+				});
+			case SignatureValidationStatus.INVALID:
+				return new Response(invalidHTML, {
+					headers: { "content-type": "text/html; charset=utf-8" },
+				});
+			case SignatureValidationStatus.VALID:
+				return new Response(validHTML, {
+					headers: { "content-type": "text/html; charset=utf-8" },
+				});
 		}
-
-		try {
-			await verify(request, verifyEd25519);
-		} catch (e) {
-			console.error(e);
-			return new Response(invalidHTML, {
-				headers: { "content-type": "text/html" },
-			});
-		}
-		return new Response(validHTML, {
-			headers: { "content-type": "text/html" },
-		});
+		return new Response("unhandled case", { status: 500 });
 	},
 	// On a schedule, send a web-bot-auth signed request to a target endpoint
 	async scheduled(ctx, env, ectx) {

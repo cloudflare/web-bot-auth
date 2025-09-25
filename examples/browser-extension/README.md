@@ -68,6 +68,7 @@ You can confirm the policy is installed by navigating to `chrome://policy` and m
 ## Debugging the Extension
 
 Extensions installed by an Enterprise policy do not enable the DevTools by default. To enable the DevTools, open the system's policy file and add the following entry:
+
 ```
 "DeveloperToolsAvailability": 1
 ```
