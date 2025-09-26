@@ -1,13 +1,13 @@
 [project]
 name = "httpie-web-bot-auth"
-version = "0.1.0"
+version = "0.1.1"
 description = "HTTPie plugin to sign requests using Web Bot Auth for Ed25519 keys"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "Thibault Meunier", email = "mail@thibaultmeunier.com" }]
 dependencies = [
-    "bot-auth>=0.3.0",
+    "bot-auth>=0.3.1",
     "httpie>=3.2.4",
     "requests>=2.32.5",
     "typing-extensions>=4.15.0",

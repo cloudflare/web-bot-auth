@@ -28,16 +28,16 @@ wheels = [
 
 [[package]]
 name = "bot-auth"
-version = "0.3.0"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "http-message-signatures" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ce/fb/ec0990984856ac8ce24426702b458f3080ff0eb1153bd2efda98f4f40f0e/bot_auth-0.3.0.tar.gz", hash = "sha256:c29afc49408fbf7cbc2662d1c052f071b453bf4880f62e16eb4d805aece81603", size = 8164, upload-time = "2025-09-15T09:33:16.571Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/e2/cb1f684ec665e6566bf40ff602334fe17534781fd9500f3f27ec06cd5efe/bot_auth-0.3.1.tar.gz", hash = "sha256:e544083e4579c29e17603292aa03a49f8f4dab236bb615c5c366dacd17cf9f71", size = 8185, upload-time = "2025-09-26T09:47:02.046Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/3f/fc69702cf1506df966ffaed50246d1d2172fad14ae7caaebabe446e654d0/bot_auth-0.3.0-py3-none-any.whl", hash = "sha256:75a60a72de03160bb0d36fab6a58af25f94e99a8599404fd3817fc8b80ed03a5", size = 8137, upload-time = "2025-09-15T09:33:15.382Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/b2/ec31d3956c93bd617238bae3ab40ad7327dbee63b53dcb9429e9176acde3/bot_auth-0.3.1-py3-none-any.whl", hash = "sha256:f7e7b90d01eb6e02c50a120a6348f47d31e1347c5a357f48ee786c1bb6f4feab", size = 8156, upload-time = "2025-09-26T09:46:58.463Z" },
 ]
 
 [[package]]
@@ -248,7 +248,7 @@ wheels = [
 
 [[package]]
 name = "httpie-web-bot-auth"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "bot-auth" },
@@ -265,7 +265,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bot-auth", specifier = ">=0.3.0" },
+    { name = "bot-auth", specifier = ">=0.3.1" },
     { name = "httpie", specifier = ">=3.2.4" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "typing-extensions", specifier = ">=4.15.0" },

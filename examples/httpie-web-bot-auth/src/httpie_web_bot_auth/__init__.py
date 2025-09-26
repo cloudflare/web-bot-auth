@@ -21,20 +21,28 @@ class WebBotAuthAdapter(HTTPAdapter):
         # Key is provided in HTTPIE_WBA_KEY env variable
         wba_key_path = os.getenv("HTTPIE_WBA_KEY")
         if not wba_key_path:
-            raise ValueError("HTTPIE_WBA_KEY environment variable not set. Please set it to a path to your Ed25519 private key in JWK format.")
+            raise ValueError(
+                "HTTPIE_WBA_KEY environment variable not set. Please set it to a path to your Ed25519 private key in JWK format."
+            )
 
         with open(wba_key_path, "r") as key_file:
-           key = json.load(key_file)
+            key = json.load(key_file)
 
         wba = BotAuth(
             [key],
-            signAgent=request.headers.get('Signature-Agent'),
+            signAgent=(
+                request.headers.get("Signature-Agent").decode("utf-8")
+                if request.headers.get("Signature-Agent")
+                else None
+            ),
         )
         parsed_url = urlparse(request.url)
-        http_url_parts = parsed_url._replace(scheme='http' if parsed_url.scheme in ['http', 'http+wba'] else 'https')
+        http_url_parts = parsed_url._replace(
+            scheme="http" if parsed_url.scheme in ["http", "http+wba"] else "https"
+        )
         request.url = urlunparse(http_url_parts)
 
-        headers = wba.get_bot_signature_header(request)
+        headers = wba.get_bot_signature_header(request.url)
 
         # set extra headers
         for k, v in headers.items():
@@ -45,17 +53,18 @@ class WebBotAuthAdapter(HTTPAdapter):
 
 
 class WebBotAuthHTTPPlugin(TransportPlugin):
-    name = 'Web bot auth HTTP'
-    description = 'Signs HTTP requests using Web Bot Auth for Ed25519 keys'
-    prefix = 'http+wba://'
+    name = "Web bot auth HTTP"
+    description = "Signs HTTP requests using Web Bot Auth for Ed25519 keys"
+    prefix = "http+wba://"
 
     def get_adapter(self):
         return WebBotAuthAdapter()
 
+
 class WebBotAuthHTTPSPlugin(TransportPlugin):
-    name = 'Web bot auth HTTPS'
-    description = 'Signs HTTP requests using Web Bot Auth for Ed25519 keys'
-    prefix = 'https+wba://'
+    name = "Web bot auth HTTPS"
+    description = "Signs HTTP requests using Web Bot Auth for Ed25519 keys"
+    prefix = "https+wba://"
 
     def get_adapter(self):
         return WebBotAuthAdapter()
