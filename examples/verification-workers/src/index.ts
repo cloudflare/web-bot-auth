@@ -28,7 +28,7 @@ import { invalidHTML, neutralHTML, validHTML } from "./html";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 import { Ed25519Signer } from "web-bot-auth/crypto";
 
-const getDirectory = async (): Promise<Directory> => {
+async function getExampleDirectory(): Promise<Directory> {
 	const key = {
 		kid: await jwkToKeyID(
 			jwk,
@@ -44,11 +44,52 @@ const getDirectory = async (): Promise<Directory> => {
 		keys: [key],
 		purpose: "rag",
 	};
-};
+}
 
-const getSigner = async (): Promise<Signer> => {
+async function fetchDirectory(signatureAgent: string): Promise<Directory> {
+	// make "some" validatation of the Signature-Agent header before making a request
+	let parsed: string;
+	try {
+		parsed = JSON.parse(signatureAgent);
+	} catch (_e) {
+		const e = new Error(
+			`Failed to validate Signature-Agent header: ${signatureAgent}`
+		);
+		console.error(e.message);
+		throw e;
+	}
+
+	try {
+		const url = new URL(parsed);
+		if (url.protocol !== "https:") {
+			throw new Error(
+				'The demo only supports "https:" scheme for Signature-Agent header'
+			);
+		}
+		if (url.pathname !== "/") {
+			throw new Error(
+				`Only support signature-agent at the root, got "${url.pathname}"`
+			);
+		}
+	} catch (e) {
+		console.error(
+			`Failed to validate Signature-Agent header: ${signatureAgent}`
+		);
+		throw e;
+	}
+	if (parsed.endsWith("/")) {
+		parsed = parsed.slice(0, -1);
+	}
+	console.log(
+		`Fetching \`Signature-Agent\` directory from: "${parsed}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}"`
+	);
+	const response = await fetch(`${parsed}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`);
+	return response.json();
+}
+
+async function getSigner(): Promise<Signer> {
 	return Ed25519Signer.fromJWK(jwk);
-};
+}
 
 function verifyEd25519(
 	directory: Directory
@@ -57,8 +98,7 @@ function verifyEd25519(
 	signature: Uint8Array,
 	params: VerificationParams
 ) => Promise<void> {
-	return async (data, signature, params) => {
-		// note that here we use getDirectory, but this is as simple as a fetch
+	return async (data, signature, _params) => {
 		const key = await crypto.subtle.importKey(
 			"jwk",
 			directory.keys[0],
@@ -84,11 +124,10 @@ function verifyEd25519(
 
 const SignatureValidationStatus = {
 	NEUTRAL: "neutral",
-	INVALID: "invalid",
+	INVALID: (message?: string) => `invalid${message ? `: ${message}` : ""}`,
 	VALID: "valid",
 } as const;
-type SignatureValidationStatus =
-	(typeof SignatureValidationStatus)[keyof typeof SignatureValidationStatus];
+type SignatureValidationStatus = string;
 
 async function verifySignature(
 	env: Env,
@@ -100,46 +139,20 @@ async function verifySignature(
 
 	const signatureAgent = request.headers.get("Signature-Agent");
 	let directory: Directory;
-	if (signatureAgent && !signatureAgent.includes(env.SIGNATURE_AGENT)) {
-		// make "some" validatation of the Signature-Agent header before making a request
-		let parsed: string;
-		try {
-			parsed = JSON.parse(signatureAgent);
-			const url = new URL(parsed);
-			if (url.protocol !== "https:") {
-				throw new Error(
-					'The demo only supports "https:" scheme for Signature-Agent header'
-				);
-			}
-			if (url.pathname !== "/") {
-				throw new Error(
-					`Only support signature-agent at the root, got "${url.pathname}"`
-				);
-			}
-		} catch (_e) {
-			console.error(
-				`Failed to validate Signature-Agent header: ${signatureAgent}`
-			);
-			return SignatureValidationStatus.INVALID;
+	try {
+		if (signatureAgent && !signatureAgent.includes(env.SIGNATURE_AGENT)) {
+			directory = await fetchDirectory(signatureAgent);
+		} else {
+			directory = await getExampleDirectory();
 		}
-		if (parsed.endsWith("/")) {
-			parsed = parsed.slice(0, -1);
-		}
-		console.log(
-			`Fetching \`Signature-Agent\` directory from: "${parsed}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}"`
-		);
-		directory = await fetch(
-			`${parsed}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`
-		).then((r) => r.json());
-	} else {
-		directory = await getDirectory();
+	} catch (e) {
+		return SignatureValidationStatus.INVALID((e as Error).message);
 	}
 
 	try {
 		await verify(request, verifyEd25519(directory));
 	} catch (e) {
-		console.error(e);
-		return SignatureValidationStatus.INVALID;
+		return SignatureValidationStatus.INVALID((e as Error).message);
 	}
 
 	console.log("Signature verified successfully");
@@ -168,7 +181,7 @@ export default {
 		}
 
 		if (url.pathname.startsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {
-			const directory = await getDirectory();
+			const directory = await getExampleDirectory();
 
 			const signedHeaders = await directoryResponseHeaders(
 				request,
@@ -183,22 +196,21 @@ export default {
 			});
 		}
 
-		const status = await verifySignature(request);
+		const status = await verifySignature(env, request);
 		switch (status) {
 			case SignatureValidationStatus.NEUTRAL:
 				return new Response(neutralHTML, {
-					headers: { "content-type": "text/html; charset=utf-8" },
-				});
-			case SignatureValidationStatus.INVALID:
-				return new Response(invalidHTML, {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 			case SignatureValidationStatus.VALID:
 				return new Response(validHTML, {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
+			default:
+				return new Response(invalidHTML, {
+					headers: { "content-type": "text/html; charset=utf-8" },
+				});
 		}
-		return new Response("unhandled case", { status: 500 });
 	},
 	// On a schedule, send a web-bot-auth signed request to a target endpoint
 	async scheduled(ctx, env, ectx) {
