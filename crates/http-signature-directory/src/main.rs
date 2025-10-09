@@ -7,7 +7,7 @@ use log::{debug, info};
 use reqwest::{
     Url,
     blocking::Client,
-    header::{ACCEPT, CONTENT_TYPE},
+    header::{ACCEPT, CONTENT_TYPE, USER_AGENT},
 };
 use serde::{Deserialize, Serialize};
 use web_bot_auth::{
@@ -17,12 +17,16 @@ use web_bot_auth::{
 };
 
 const MIME_TYPE: &str = "application/http-message-signatures-directory+json";
+const DEFAULT_USERAGENT: &str = "http-signature-directory-test-script/0.1.0";
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// URL pointing to your HTTP Message Signature JSON Web Key Set e.g. `https://example.com/.well-known/http-message-signatures-directory`
     url: String,
+    /// Optional useragent that can be used to customize the useragent being sent to the server.
+    #[arg (default_value_t = String::from(DEFAULT_USERAGENT))]
+    user_agent: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -130,6 +134,7 @@ fn main() -> Result<(), String> {
     let response = match Client::new()
         .get(cli.url.clone())
         .header(ACCEPT, MIME_TYPE)
+        .header(USER_AGENT, cli.user_agent)
         .send()
     {
         Ok(response) => response,
@@ -189,8 +194,29 @@ fn main() -> Result<(), String> {
         signature_inputs
     );
 
+    let body_text = match response.text() {
+        Ok(text) => text,
+        Err(err) => {
+            let error_msg = format!("Failed to read response body: {:?}", err);
+            errors.push(error_msg.clone());
+            let result = ValidationResult {
+                success: false,
+                message: error_msg.clone(),
+                details: ValidationDetails {
+                    url: cli.url.clone(),
+                    keys_count: 0,
+                    validated_keys: vec![],
+                    errors,
+                    warnings,
+                },
+            };
+            eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+            return Err("Body read failed".to_string());
+        }
+    };
+
     // Parse JSON Web Key Set
-    let json_web_key_set: JSONWebKeySet = match response.json() {
+    let json_web_key_set: JSONWebKeySet = match serde_json::from_str(&body_text) {
         Ok(jwks) => jwks,
         Err(error) => {
             let error_msg = format!("Failed to parse content as JSON web key set: {:?}", error);
@@ -207,6 +233,10 @@ fn main() -> Result<(), String> {
                 },
             };
             eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+            eprintln!("This was the data the server sent back:");
+            eprintln!("--- RAW RESPONSE BODY START ---");
+            println!("{}", body_text);
+            eprintln!("--- RAW RESPONSE BODY END ---");
             return Err("JSON parsing failed".to_string());
         }
     };
