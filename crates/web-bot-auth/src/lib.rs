@@ -71,6 +71,10 @@ pub enum ImplementationError {
     /// during both signing and verification, as both steps require constructing the signature
     /// base.
     NonAsciiContentFound,
+    /// When normalizing path, query, or authority to percent-decoded forms as mandated by RFC 9421,
+    /// an invalid UTF-8 sequence was found. This will be thrown during signing, and indicates malformed
+    /// UTF-8 input.
+    InvalidUTF8Found,
     /// Signature bases are terminated with a line beginning with `@signature-params`. This error
     /// is thrown if the value of that line could not be converted into a structured field value.
     /// This is considered "impossible" as invalid values should not be present in the structure

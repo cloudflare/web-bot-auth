@@ -1,4 +1,4 @@
-use crate::components::CoveredComponent;
+use crate::components::{CoveredComponent, DerivedComponent, HTTPField};
 use crate::keyring::{Algorithm, KeyRing};
 use indexmap::IndexMap;
 use sfv::SerializeValue;
@@ -182,7 +182,11 @@ impl SignatureBase {
 
         for (component, serialized_value) in self.components {
             let sfv_item = match component {
-                CoveredComponent::HTTP(http) => sfv::Item::try_from(http)?,
+                CoveredComponent::HTTP(http) => {
+                    let HTTPField { name, parameters } = http;
+                    let name = name.to_lowercase();
+                    sfv::Item::try_from(HTTPField { name, parameters })?
+                }
                 CoveredComponent::Derived(derived) => sfv::Item::try_from(derived)?,
             };
 
@@ -245,10 +249,12 @@ pub trait SignedMessage {
 /// Trait that messages seeking signing should implement to generate `Signature-Input`
 /// and `Signature` header contents.
 pub trait UnsignedMessage {
-    /// Obtain a list of covered components to be included. HTTP fields must be lowercased before
-    /// emitting. It is NOT RECOMMENDED to include `signature` and `signature-input` fields here.
-    /// If signing a Web Bot Auth message, and `Signature-Agent` header is intended present, you MUST
-    /// include it as a component here for successful verification.
+    /// Obtain a list of covered components to be included. The `MessageSigner` struct will
+    /// apply URL normalization to the authority, scheme, path and query derived components,
+    /// as well as lowercase HTTP field names. It is NOT RECOMMENDED to include `Signature` and
+    /// `Signature-Input` fields here. If signing a Web Bot Auth message, and `Signature-Agent`
+    /// header is intended present, you MUST include it as a component here for successful
+    /// verification.
     fn fetch_components_to_cover(&self) -> IndexMap<CoveredComponent, String>;
     /// Store the contents of a generated `Signature-Input` and `Signature` header value.
     /// It is the responsibility of the application to generate a consistent label for both.
@@ -283,7 +289,7 @@ impl MessageSigner {
         algorithm: Algorithm,
         signing_key: &Vec<u8>,
     ) -> Result<(), ImplementationError> {
-        let components_to_cover = message.fetch_components_to_cover();
+        let mut components_to_cover = message.fetch_components_to_cover();
         let mut sfv_parameters = sfv::Parameters::new();
 
         sfv_parameters.insert(
@@ -351,6 +357,44 @@ impl MessageSigner {
             sfv::KeyRef::constant("expires").to_owned(),
             sfv::BareItem::Integer(sfv::Integer::constant(expires_as_i64)),
         );
+
+        // Handle RFC 9421 rules regarding normal form of different components
+        for (component, value) in components_to_cover.iter_mut() {
+            match component {
+                CoveredComponent::Derived(DerivedComponent::Authority { req: _ }) => {
+                    // In normal form, default ports are removed. This has edge case when someone is using
+                    // HTTP with port 443 or HTTPS with port 80, but this is very unlikely.
+                    // We need to know the scheme to remove the default ports accurately, but
+                    // this info is not guaranteed to be present in the components to cover.
+                    for suffix in [":80", ":443", ":"] {
+                        if let Some(stripped) = value.strip_suffix(suffix) {
+                            *value = stripped.to_string();
+                            break;
+                        }
+                    }
+                    value.make_ascii_lowercase();
+                }
+                CoveredComponent::Derived(DerivedComponent::Scheme { req: _ }) => {
+                    value.make_ascii_lowercase();
+                }
+                CoveredComponent::Derived(DerivedComponent::Path { req: _ }) => {
+                    *value = percent_encoding::percent_decode(value.as_bytes())
+                        .decode_utf8()
+                        .map_err(|_| ImplementationError::InvalidUTF8Found)?
+                        .to_string();
+                    if value.is_empty() {
+                        *value = "/".to_string();
+                    }
+                }
+                CoveredComponent::Derived(DerivedComponent::Query { req: _ }) => {
+                    *value = percent_encoding::percent_decode(value.as_bytes())
+                        .decode_utf8()
+                        .map_err(|_| ImplementationError::InvalidUTF8Found)?
+                        .to_string();
+                }
+                _ => {}
+            }
+        }
 
         let (signature_base, signature_params_content) = SignatureBase {
             components: components_to_cover,
@@ -547,6 +591,18 @@ mod tests {
 
     use super::*;
 
+    const PRIVATE_KEY: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
+        0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c, 0x0e,
+        0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f, 0x6a, 0x7d,
+        0x29, 0xc5,
+    ];
+
+    const PUBLIC_KEY: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+        0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58, 0x2b,
+        0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd, 0xce, 0x43,
+        0xd1, 0xbb,
+    ];
+
     struct StandardTestVector {}
 
     impl SignedMessage for StandardTestVector {
@@ -582,16 +638,11 @@ mod tests {
     #[test]
     fn test_verifying_as_http_signature() {
         let test = StandardTestVector {};
-        let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
-            0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
-            0x2b, 0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd,
-            0xce, 0x43, 0xd1, 0xbb,
-        ];
         let mut keyring = KeyRing::default();
         keyring.import_raw(
             "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
             Algorithm::Ed25519,
-            public_key.to_vec(),
+            PUBLIC_KEY.to_vec(),
         );
         let verifier = MessageVerifier::parse(&test, |(_, _)| true).unwrap();
         let timing = verifier.verify(&keyring, None).unwrap();
@@ -637,12 +688,6 @@ mod tests {
             tag: "web-bot-auth".into(),
         };
 
-        let private_key: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
-            0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c,
-            0x0e, 0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f,
-            0x6a, 0x7d, 0x29, 0xc5,
-        ];
-
         let mut test = SigningTest {};
 
         assert!(
@@ -651,7 +696,7 @@ mod tests {
                     &mut test,
                     Duration::from_secs(10),
                     Algorithm::Ed25519,
-                    &private_key.to_vec()
+                    &PRIVATE_KEY.to_vec()
                 )
                 .is_ok()
         );
@@ -693,5 +738,142 @@ mod tests {
         let expected_base = "\"@method\": POST\n\"@authority\": example.com\n\"content-length\": 18\n\"@signature-params\": (\"@method\" \"@authority\" \"content-length\");keyid=\"test\";created=1618884473";
         let (base, _) = sigbase.into_ascii().unwrap();
         assert_eq!(base, expected_base);
+    }
+
+    #[test]
+    fn test_equivalent_forms_generate_same_signature() {
+        struct EquivalentForm1 {
+            signature_input: Option<String>,
+            signature_header: Option<String>,
+        }
+
+        struct EquivalentForm2 {
+            signature_input: Option<String>,
+            signature_header: Option<String>,
+        }
+
+        impl UnsignedMessage for EquivalentForm1 {
+            fn fetch_components_to_cover(&self) -> IndexMap<CoveredComponent, String> {
+                IndexMap::from_iter([
+                    (
+                        CoveredComponent::HTTP(HTTPField {
+                            name: "content-length".to_string(),
+                            parameters: HTTPFieldParametersSet(vec![]),
+                        }),
+                        "18".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Authority { req: false }),
+                        "example.com".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Scheme { req: false }),
+                        "http".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Path { req: false }),
+                        "/~smith".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Query { req: false }),
+                        "?param=value&foo=bar&baz=bat~man".to_string(),
+                    ),
+                ])
+            }
+
+            fn register_header_contents(
+                &mut self,
+                signature_input: String,
+                signature_header: String,
+            ) {
+                self.signature_input = Some(signature_input);
+                self.signature_header = Some(signature_header);
+            }
+        }
+
+        impl UnsignedMessage for EquivalentForm2 {
+            fn fetch_components_to_cover(&self) -> IndexMap<CoveredComponent, String> {
+                IndexMap::from_iter([
+                    (
+                        CoveredComponent::HTTP(HTTPField {
+                            name: "CONTENT-LENGTH".to_string(),
+                            parameters: HTTPFieldParametersSet(vec![]),
+                        }),
+                        "18".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Authority { req: false }),
+                        "example.com:".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Scheme { req: false }),
+                        "HTTP".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Path { req: false }),
+                        "/%7Esmith".to_string(),
+                    ),
+                    (
+                        CoveredComponent::Derived(DerivedComponent::Query { req: false }),
+                        "?param=value&foo=bar&baz=bat%7Eman".to_string(),
+                    ),
+                ])
+            }
+
+            fn register_header_contents(
+                &mut self,
+                signature_input: String,
+                signature_header: String,
+            ) {
+                self.signature_input = Some(signature_input);
+                self.signature_header = Some(signature_header);
+            }
+        }
+
+        let signer = MessageSigner {
+            keyid: "test".into(),
+            nonce: "another-test".into(),
+            tag: "web-bot-auth".into(),
+        };
+
+        let mut equivalent_form_1 = EquivalentForm1 {
+            signature_input: None,
+            signature_header: None,
+        };
+        let mut equivalent_form_2 = EquivalentForm2 {
+            signature_input: None,
+            signature_header: None,
+        };
+
+        assert!(
+            signer
+                .generate_signature_headers_content(
+                    &mut equivalent_form_1,
+                    Duration::from_secs(10),
+                    Algorithm::Ed25519,
+                    &PRIVATE_KEY.to_vec()
+                )
+                .is_ok()
+        );
+
+        assert!(
+            signer
+                .generate_signature_headers_content(
+                    &mut equivalent_form_2,
+                    Duration::from_secs(10),
+                    Algorithm::Ed25519,
+                    &PRIVATE_KEY.to_vec()
+                )
+                .is_ok()
+        );
+
+        assert_eq!(
+            equivalent_form_1.signature_input.unwrap(),
+            equivalent_form_2.signature_input.unwrap()
+        );
+        assert_eq!(
+            equivalent_form_1.signature_header.unwrap(),
+            equivalent_form_2.signature_header.unwrap()
+        );
     }
 }
