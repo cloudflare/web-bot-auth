@@ -253,8 +253,7 @@ footer {
       "x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
       "nbf": 1743465600000
     }
-  ],
-  "purpose": "rag"
+  ]
 }
       </pre>
 
