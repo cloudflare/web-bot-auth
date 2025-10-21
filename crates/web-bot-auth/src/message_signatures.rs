@@ -1,11 +1,14 @@
-use crate::components::CoveredComponent;
+use super::ImplementationError;
+use crate::components::{self, CoveredComponent, HTTPField};
 use crate::keyring::{Algorithm, KeyRing};
 use indexmap::IndexMap;
+use regex::bytes::Regex;
 use sfv::SerializeValue;
 use std::fmt::Write as _;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-use super::ImplementationError;
+static OBSOLETE_LINE_FOLDING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s*\r\n\s+").unwrap());
 
 /// The component parameters associated with the signature in `Signature-Input`
 #[derive(Clone, Debug)]
@@ -153,8 +156,26 @@ impl SignatureBaseBuilder {
                 self.components
                     .into_iter()
                     .map(|component| match message.lookup_component(&component) {
-                        Some(serialized_value) => Ok((component, serialized_value)),
-                        None => Err(ImplementationError::LookupError(component)),
+                        v if v.len() == 1 => Ok((component, v[0].to_owned())),
+                        v if v.len() > 1 && matches!(component, CoveredComponent::HTTP(_)) => {
+                            let mut register: Vec<String> = vec![];
+
+                            for header_value in v.into_iter() {
+                                register.push(
+                                    // replace leading / trailing whitespace and obsolete line folding,
+                                    // per HTTP message signature spec
+                                    String::from_utf8(
+                                        OBSOLETE_LINE_FOLDING
+                                            .replace_all(header_value.as_bytes().trim_ascii(), b" ")
+                                            .into_owned(),
+                                    )
+                                    .map_err(|_| ImplementationError::NonAsciiContentFound)?,
+                                );
+                            }
+
+                            Ok((component, register.join(", ")))
+                        }
+                        _ => Err(ImplementationError::LookupError(component)),
                     })
                     .collect::<Result<Vec<(CoveredComponent, String)>, ImplementationError>>()?,
             ),
@@ -215,31 +236,14 @@ impl SignatureBase {
 /// Trait that messages seeking verification should implement to facilitate looking up
 /// raw values from the underlying message.
 pub trait SignedMessage {
-    /// Obtain every `Signature` header in the message. Despite the name, you can omit
-    /// `Signature` that are known to be invalid ahead of time. However, each `Signature-`
-    /// header should be unparsed and be a valid sfv::Item::Dictionary value. You should
-    /// separately implement looking this up in `lookup_component` as an HTTP header with
-    /// multiple values, although including these as signature components when signing is
-    /// NOT recommended. During verification, invalid values (those that cannot be
-    /// parsed as an sfv::Dictionary) will be skipped without raising an error.
-    fn fetch_all_signature_headers(&self) -> Vec<String>;
-    /// Obtain every `Signature-Input` header in the message. Despite the name, you
-    /// can omit `Signature-Input` that are known to be invalid ahead of time. However,
-    /// each `Signature-Input` header should be unparsed and be a valid sfv::Item::Dictionary
-    /// value (meaning it should be encased in double quotes). You should separately implement
-    /// looking this up in `lookup_component` as an HTTP header with multiple values, although
-    /// including these as signature components when signing is NOT recommended. During
-    /// verification, invalid values (those that cannot be parsed as an sfv::Dictionary) will
-    /// be skipped will be skipped without raising an error.
-    fn fetch_all_signature_inputs(&self) -> Vec<String>;
-    /// Obtain the serialized value of a covered component. Implementations should
+    /// Retrieve the raw value(s) of a covered component. Implementations should
     /// respect any parameter values set on the covered component per the message
-    /// signature spec. Component values that cannot be found must return None.
+    /// signature spec. Component values that cannot be found must return an empty vector.
     /// `CoveredComponent::HTTP` fields are guaranteed to have lowercase ASCII names, so
     /// care should be taken to ensure HTTP field names in the message are checked in a
-    /// case-insensitive way. HTTP fields with multiple values should be combined into a
-    /// single string in the manner described in <https://www.rfc-editor.org/rfc/rfc9421#name-http-fields>.
-    fn lookup_component(&self, name: &CoveredComponent) -> Option<String>;
+    /// case-insensitive way. Only `CoveredComponent::Http` should return a vector with
+    /// more than one element.
+    fn lookup_component(&self, name: &CoveredComponent) -> Vec<String>;
 }
 
 /// Trait that messages seeking signing should implement to generate `Signature-Input`
@@ -386,6 +390,8 @@ impl MessageSigner {
 /// of the chosen labl and its components.
 #[derive(Clone, Debug)]
 pub struct ParsedLabel {
+    /// The label that was chosen.
+    pub label: sfv::Key,
     /// The signature obtained from the message that verifiers will verify
     pub signature: Vec<u8>,
     /// The signature base obtained from the message, containining both the chosen
@@ -424,7 +430,10 @@ impl MessageVerifier {
         P: Fn(&(sfv::Key, sfv::InnerList)) -> bool,
     {
         let signature_input = message
-            .fetch_all_signature_inputs()
+            .lookup_component(&CoveredComponent::HTTP(HTTPField {
+                name: "signature-input".to_string(),
+                parameters: components::HTTPFieldParametersSet(vec![]),
+            }))
             .into_iter()
             .filter_map(|sig_input| sfv::Parser::new(&sig_input).parse_dictionary().ok())
             .reduce(|mut acc, sig_input| {
@@ -432,11 +441,14 @@ impl MessageVerifier {
                 acc
             })
             .ok_or(ImplementationError::ParsingError(
-                "No `Signature-Input` headers found".to_string(),
+                "No validly-formatted `Signature-Input` headers found".to_string(),
             ))?;
 
         let mut signature_header = message
-            .fetch_all_signature_headers()
+            .lookup_component(&CoveredComponent::HTTP(HTTPField {
+                name: "signature".to_string(),
+                parameters: components::HTTPFieldParametersSet(vec![]),
+            }))
             .into_iter()
             .filter_map(|sig_input| sfv::Parser::new(&sig_input).parse_dictionary().ok())
             .reduce(|mut acc, sig_input| {
@@ -444,7 +456,7 @@ impl MessageVerifier {
                 acc
             })
             .ok_or(ImplementationError::ParsingError(
-                "No `Signature` headers found".to_string(),
+                "No validly-formatted `Signature` headers found".to_string(),
             ))?;
 
         let (label, innerlist) = signature_input
@@ -483,7 +495,11 @@ impl MessageVerifier {
         let base = builder.into_signature_base(message)?;
 
         Ok(MessageVerifier {
-            parsed: ParsedLabel { signature, base },
+            parsed: ParsedLabel {
+                label,
+                signature,
+                base,
+            },
         })
     }
 
@@ -550,18 +566,22 @@ mod tests {
     struct StandardTestVector {}
 
     impl SignedMessage for StandardTestVector {
-        fn fetch_all_signature_headers(&self) -> Vec<String> {
-            vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()]
-        }
-        fn fetch_all_signature_inputs(&self) -> Vec<String> {
-            vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="web-bot-auth""#.to_owned()]
-        }
-        fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
-            match *name {
-                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                    Some("example.com".to_string())
+        fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+            match name {
+                CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                    if name == "signature" {
+                        return vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()];
+                    }
+
+                    if name == "signature-input" {
+                        return vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="web-bot-auth""#.to_owned()];
+                    }
+                    vec![]
                 }
-                _ => None,
+                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                    vec!["example.com".to_string()]
+                }
+                _ => vec![],
             }
         }
     }

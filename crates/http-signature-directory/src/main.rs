@@ -11,7 +11,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use web_bot_auth::{
-    components::{CoveredComponent, DerivedComponent},
+    components::{CoveredComponent, DerivedComponent, HTTPField},
     keyring::{JSONWebKeySet, KeyRing, Thumbprintable},
     message_signatures::{MessageVerifier, SignedMessage},
 };
@@ -68,18 +68,21 @@ struct SignedDirectory {
 }
 
 impl SignedMessage for SignedDirectory {
-    fn fetch_all_signature_headers(&self) -> Vec<String> {
-        self.signature.clone()
-    }
-    fn fetch_all_signature_inputs(&self) -> Vec<String> {
-        self.input.clone()
-    }
-    fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
-        match *name {
+    fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+        match name {
             CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                Some(self.authority.clone())
+                vec![self.authority.clone()]
             }
-            _ => None,
+            CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                if name == "signature" {
+                    return self.signature.clone();
+                }
+                if name == "signature-input" {
+                    return self.input.clone();
+                }
+                vec![]
+            }
+            _ => vec![],
         }
     }
 }
