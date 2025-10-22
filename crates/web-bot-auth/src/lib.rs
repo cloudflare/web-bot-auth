@@ -32,6 +32,8 @@ use data_url::DataUrl;
 use keyring::{Algorithm, JSONWebKeySet, KeyRing};
 use std::time::SystemTimeError;
 
+use crate::components::{HTTPField, HTTPFieldParameters};
+
 /// Errors that may be thrown by this module.
 #[derive(Debug)]
 pub enum ImplementationError {
@@ -91,16 +93,6 @@ pub enum WebBotAuthError {
     /// and `creates` method.
     SignatureIsExpired,
 }
-/// A trait that messages wishing to be verified as a `web-bot-auth` method specifically
-/// must implement.
-pub trait WebBotAuthSignedMessage: SignedMessage {
-    /// Obtain every `Signature-Agent` header in the message. Despite the name, you can omit
-    /// `Signature-Agents` that are known to be invalid ahead of time. However, each `Signature-Agent`
-    /// header must be unparsed and a be a valid sfv::Item::String value (meaning it should be encased
-    /// in double quotes). You should separately implement looking this up in `SignedMessage::lookup_component`
-    /// as an HTTP header with multiple values.
-    fn fetch_all_signature_agents(&self) -> Vec<String>;
-}
 
 /// A verifier for Web Bot Auth messages specifically.
 #[derive(Clone, Debug)]
@@ -127,10 +119,14 @@ impl WebBotAuthVerifier {
     /// # Errors
     ///
     /// Returns `ImplementationErrors` relevant to verifying and parsing.
-    pub fn parse(message: &impl WebBotAuthSignedMessage) -> Result<Self, ImplementationError> {
-        let signature_agents = message.fetch_all_signature_agents();
-        let web_bot_auth_verifier = Self {
-            message_verifier: MessageVerifier::parse(message, |(_, innerlist)| {
+    pub fn parse(message: &impl SignedMessage) -> Result<Self, ImplementationError> {
+        let signature_agents = message.lookup_component(&CoveredComponent::HTTP(HTTPField {
+            name: "signature-agent".to_string(),
+            parameters: components::HTTPFieldParametersSet(vec![]),
+        }));
+
+        let message_verifier =
+            MessageVerifier::parse(message, |(_, innerlist)| {
                 innerlist.params.contains_key("keyid")
                     && innerlist.params.contains_key("tag")
                     && innerlist.params.contains_key("expires")
@@ -140,19 +136,83 @@ impl WebBotAuthVerifier {
                         .get("tag")
                         .and_then(|tag| tag.as_string())
                         .is_some_and(|tag| tag.as_str() == "web-bot-auth")
-                    && innerlist
-                        .items
-                        .iter()
-                        .any(|item| *item == sfv::Item::new(sfv::StringRef::constant("@authority")))
+                    && (innerlist.items.iter().any(|item| {
+                        *item == sfv::Item::new(sfv::StringRef::constant("@authority"))
+                    }) || innerlist.items.iter().any(|item| {
+                        *item == sfv::Item::new(sfv::StringRef::constant("@target-uri"))
+                    }))
                     && (if !signature_agents.is_empty() {
                         innerlist.items.iter().any(|item| {
-                            *item == sfv::Item::new(sfv::StringRef::constant("signature-agent"))
+                            item.bare_item
+                                .as_string()
+                                .is_some_and(|i| i == sfv::StringRef::constant("signature-agent"))
                         })
                     } else {
                         true
                     })
-            })?,
-            parsed_directories: signature_agents
+            })?;
+
+        let mut signature_agent_key: Option<String> = None;
+        'outer_loop: for (component, _) in message_verifier.parsed.base.components.iter() {
+            if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component {
+                if name == "signature-agent" {
+                    for parameter in parameters.0.iter() {
+                        if let HTTPFieldParameters::Key(key) = parameter {
+                            signature_agent_key = Some(key.clone());
+                            break 'outer_loop;
+                        }
+                    }
+                }
+            }
+        }
+
+        let parse_link = |link: &sfv::StringRef| {
+            let link_str = link.as_str();
+            if link_str.starts_with("https://") || link_str.starts_with("http://") {
+                return Some(SignatureAgentLink::External(String::from(link_str)));
+            }
+
+            if let Ok(url) = DataUrl::process(link_str) {
+                let mediatype = url.mime_type();
+                if mediatype.type_ == "application"
+                    && mediatype.subtype == "http-message-signatures-directory"
+                {
+                    if let Ok((body, _)) = url.decode_to_vec() {
+                        if let Ok(jwks) = serde_json::from_slice::<JSONWebKeySet>(&body) {
+                            return Some(SignatureAgentLink::Inline(jwks));
+                        }
+                    }
+                }
+            }
+
+            None
+        };
+
+        let parsed_directories = match signature_agent_key {
+            Some(key) => signature_agents
+                .iter()
+                .filter_map(|header| sfv::Parser::new(header).parse_dictionary().ok())
+                .reduce(|mut acc, sig_agent| {
+                    acc.extend(sig_agent);
+                    acc
+                })
+                .ok_or(ImplementationError::ParsingError(
+                    "Failed to parse `Signature-Agent` into valid sfv::Dictionary".to_string(),
+                ))?
+                .into_iter()
+                .filter_map(|(label, listentry)| match listentry {
+                    sfv::ListEntry::Item(item) => Some((label, item)),
+                    sfv::ListEntry::InnerList(_) => None,
+                })
+                .filter_map(|(label, item)| {
+                    if label.as_str() != key {
+                        return None;
+                    }
+                    let as_string = item.bare_item.as_string();
+                    as_string.and_then(parse_link)
+                })
+                .collect(),
+            None => signature_agents
                 .iter()
                 .map(|header| {
                     sfv::Parser::new(header).parse_item().map_err(|e| {
@@ -165,30 +225,14 @@ impl WebBotAuthVerifier {
                 .iter()
                 .flat_map(|item| {
                     let as_string = item.bare_item.as_string();
-                    as_string.and_then(|link| {
-                        let link_str = link.as_str();
-                        if link_str.starts_with("https://") || link_str.starts_with("http://") {
-                            return Some(SignatureAgentLink::External(String::from(link_str)));
-                        }
-
-                        if let Ok(url) = DataUrl::process(link_str) {
-                            let mediatype = url.mime_type();
-                            if mediatype.type_ == "application"
-                                && mediatype.subtype == "http-message-signatures-directory"
-                            {
-                                if let Ok((body, _)) = url.decode_to_vec() {
-                                    if let Ok(jwks) = serde_json::from_slice::<JSONWebKeySet>(&body)
-                                    {
-                                        return Some(SignatureAgentLink::Inline(jwks));
-                                    }
-                                }
-                            }
-                        }
-
-                        None
-                    })
+                    as_string.and_then(parse_link)
                 })
                 .collect(),
+        };
+
+        let web_bot_auth_verifier = Self {
+            message_verifier,
+            parsed_directories,
         };
 
         Ok(web_bot_auth_verifier)
@@ -230,25 +274,23 @@ mod tests {
     struct StandardTestVector {}
 
     impl SignedMessage for StandardTestVector {
-        fn fetch_all_signature_headers(&self) -> Vec<String> {
-            vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()]
-        }
-        fn fetch_all_signature_inputs(&self) -> Vec<String> {
-            vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="web-bot-auth""#.to_owned()]
-        }
-        fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
-            match *name {
-                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                    Some("example.com".to_string())
-                }
-                _ => None,
-            }
-        }
-    }
+        fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+            match name {
+                CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                    if name == "signature" {
+                        return vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()];
+                    }
 
-    impl WebBotAuthSignedMessage for StandardTestVector {
-        fn fetch_all_signature_agents(&self) -> Vec<String> {
-            vec![]
+                    if name == "signature-input" {
+                        return vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="web-bot-auth""#.to_owned()];
+                    }
+                    vec![]
+                }
+                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                    vec!["example.com".to_string()]
+                }
+                _ => vec![],
+            }
         }
     }
 
@@ -307,25 +349,23 @@ mod tests {
         }
 
         impl SignedMessage for MyTest {
-            fn fetch_all_signature_headers(&self) -> Vec<String> {
-                vec![self.signature_header.clone()]
-            }
-            fn fetch_all_signature_inputs(&self) -> Vec<String> {
-                vec![self.signature_input.clone()]
-            }
-            fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
-                match *name {
-                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                        Some("example.com".to_string())
-                    }
-                    _ => None,
-                }
-            }
-        }
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec![self.signature_header.clone()];
+                        }
 
-        impl WebBotAuthSignedMessage for MyTest {
-            fn fetch_all_signature_agents(&self) -> Vec<String> {
-                vec![]
+                        if name == "signature-input" {
+                            return vec![self.signature_input.clone()];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
             }
         }
 
@@ -388,27 +428,25 @@ mod tests {
         struct MissingParametersTestVector {}
 
         impl SignedMessage for MissingParametersTestVector {
-            fn fetch_all_signature_headers(&self) -> Vec<String> {
-                vec![
-                    "sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()
-                ]
-            }
-            fn fetch_all_signature_inputs(&self) -> Vec<String> {
-                vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="not-web-bot-auth""#.to_owned()]
-            }
-            fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
-                match *name {
-                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                        Some("example.com".to_string())
-                    }
-                    _ => None,
-                }
-            }
-        }
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec![
+                                "sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()
+                            ];
+                        }
 
-        impl WebBotAuthSignedMessage for MissingParametersTestVector {
-            fn fetch_all_signature_agents(&self) -> Vec<String> {
-                vec![]
+                        if name == "signature-input" {
+                            return vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="not-web-bot-auth""#.to_owned()];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
             }
         }
 
@@ -421,25 +459,27 @@ mod tests {
         struct MissingParametersTestVector {}
 
         impl SignedMessage for MissingParametersTestVector {
-            fn fetch_all_signature_headers(&self) -> Vec<String> {
-                vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()]
-            }
-            fn fetch_all_signature_inputs(&self) -> Vec<String> {
-                vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="web-bot-auth""#.to_owned()]
-            }
-            fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
-                match *name {
-                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                        Some("example.com".to_string())
-                    }
-                    _ => None,
-                }
-            }
-        }
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDg==:".to_owned()];
+                        }
 
-        impl WebBotAuthSignedMessage for MissingParametersTestVector {
-            fn fetch_all_signature_agents(&self) -> Vec<String> {
-                vec![String::from("\"https://myexample.com\"")]
+                        if name == "signature-input" {
+                            return vec![r#"sig1=("@authority");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="gubxywVx7hzbYKatLgzuKDllDAIXAkz41PydU7aOY7vT+Mb3GJNxW0qD4zJ+IOQ1NVtg+BNbTCRUMt1Ojr5BgA==";tag="web-bot-auth""#.to_owned()];
+                        }
+
+                        if name == "signature-agent" {
+                            return vec![String::from("\"https://myexample.com\"")];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
             }
         }
 
@@ -448,35 +488,34 @@ mod tests {
     }
 
     #[test]
-    fn test_signature_agents_are_parsed_correctly() {
+    fn test_signature_agents_are_parsed_with_fallback() {
         struct StandardTestVector {}
 
         impl SignedMessage for StandardTestVector {
-            fn fetch_all_signature_headers(&self) -> Vec<String> {
-                vec!["sig1=:3q7S1TtbrFhQhpcZ1gZwHPCFHTvdKXNY1xngkp6lyaqqqv3QZupwpu/wQG5a7qybnrj2vZYMeVKuWepm+rNkDw==:".to_owned()]
-            }
-            fn fetch_all_signature_inputs(&self) -> Vec<String> {
-                vec![r#"sig1=("@authority" "signature-agent");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749331474;expires=1749331484"#.to_owned()]
-            }
-            fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
                 match name {
-                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                        Some("example.com".to_string())
-                    }
-                    CoveredComponent::HTTP(components::HTTPField { name, .. }) => {
-                        if name == "signature-agent" {
-                            return Some(String::from("\"https://myexample.com\""));
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec!["sig1=:3q7S1TtbrFhQhpcZ1gZwHPCFHTvdKXNY1xngkp6lyaqqqv3QZupwpu/wQG5a7qybnrj2vZYMeVKuWepm+rNkDw==:".to_owned()];
                         }
-                        None
-                    }
-                    _ => None,
-                }
-            }
-        }
 
-        impl WebBotAuthSignedMessage for StandardTestVector {
-            fn fetch_all_signature_agents(&self) -> Vec<String> {
-                vec![String::from("\"https://myexample.com\"")]
+                        if name == "signature-input" {
+                            return vec![r#"sig1=("@authority" "signature-agent");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749331474;expires=1749331484"#.to_owned()];
+                        }
+
+                        if name == "signature-agent" {
+                            return vec![
+                                String::from("\"https://myexample.com\""),
+                                String::from("\"https://myexample2.com\""),
+                            ];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
             }
         }
 
@@ -494,8 +533,64 @@ mod tests {
 
         let test = StandardTestVector {};
         let verifier = WebBotAuthVerifier::parse(&test).unwrap();
-        let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.as_nanos() > 0);
-        assert!(timing.verification.as_nanos() > 0);
+        assert_eq!(verifier.get_signature_agents().len(), 2);
+        assert_eq!(
+            verifier.get_signature_agents()[0],
+            SignatureAgentLink::External("https://myexample.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_signature_agents_are_parsed_correctly() {
+        struct StandardTestVector {}
+
+        impl SignedMessage for StandardTestVector {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec!["sig1=:3q7S1TtbrFhQhpcZ1gZwHPCFHTvdKXNY1xngkp6lyaqqqv3QZupwpu/wQG5a7qybnrj2vZYMeVKuWepm+rNkDw==:".to_owned()];
+                        }
+
+                        if name == "signature-input" {
+                            return vec![r#"sig1=("@authority" "signature-agent";key="agent1");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749331474;expires=1749331484"#.to_owned()];
+                        }
+
+                        if name == "signature-agent" {
+                            return vec![
+                                r#"agent1="https://myexample.com", agent2="https://example2.com""#
+                                    .to_owned(),
+                            ];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+            0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
+            0x2b, 0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd,
+            0xce, 0x43, 0xd1, 0xbb,
+        ];
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
+            public_key.to_vec(),
+        );
+
+        let test = StandardTestVector {};
+        let verifier = WebBotAuthVerifier::parse(&test).unwrap();
+
+        assert_eq!(verifier.get_signature_agents().len(), 1);
+        assert_eq!(
+            verifier.get_signature_agents()[0],
+            SignatureAgentLink::External("https://myexample.com".to_string())
+        );
     }
 }

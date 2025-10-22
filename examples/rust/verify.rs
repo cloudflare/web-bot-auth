@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use web_bot_auth::{
-    SignatureAgentLink, WebBotAuthSignedMessage, WebBotAuthVerifier,
+    SignatureAgentLink, WebBotAuthVerifier,
     components::{CoveredComponent, DerivedComponent, HTTPField},
     keyring::{Algorithm, KeyRing},
     message_signatures::SignedMessage,
@@ -22,31 +22,27 @@ use web_bot_auth::{
 struct MySignedMsg;
 
 impl SignedMessage for MySignedMsg {
-    fn fetch_all_signature_headers(&self) -> Vec<String> {
-        vec!["sig1=:GXzHSRZ9Sf6WwLOZjxAhfE6WEUPfDMrVBJITsL2sbG8gtcZgqKe2Yn7uavk0iNQrfcPzgGq8h8Pk5osNGqdtCw==:".to_owned()]
-    }
-    fn fetch_all_signature_inputs(&self) -> Vec<String> {
-        vec![r#"sig1=("@authority" "signature-agent");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749332605;expires=1749332615"#.to_owned()]
-    }
-    fn lookup_component(&self, name: &CoveredComponent) -> Option<String> {
+    fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
         match name {
             CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
-                Some("example.com".to_string())
+                vec!["example.com".to_string()]
             }
             CoveredComponent::HTTP(HTTPField { name, .. }) => {
                 if name == "signature-agent" {
-                    return Some(String::from("\"https://myexample.com\""));
+                    return vec![r#"agent1="https://myexample.com""#.to_string()];
                 }
-                None
-            }
-            _ => None,
-        }
-    }
-}
 
-impl WebBotAuthSignedMessage for MySignedMsg {
-    fn fetch_all_signature_agents(&self) -> Vec<String> {
-        vec!["\"https://myexample.com\"".into()]
+                if name == "signature" {
+                    return vec![r#"sig1=:EZZ8VJcVQ9WgiUytQWAfEvRWLLu2O+UkJ15aVI//dfLTCLnr1Vg2CDXXlrW4D+OjBB6zu/UkFtxpKzbXh2ESBg==:"#.to_string()];
+                }
+
+                if name == "signature-input" {
+                    return vec![r#"sig1=("@authority" "signature-agent";key="agent1");keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1761143856;expires=1761143866"#.to_string()];
+                }
+                vec![]
+            }
+            _ => vec![],
+        }
     }
 }
 
@@ -58,6 +54,7 @@ fn main() {
         0xd1, 0xbb,
     ];
     let mut keyring = KeyRing::default();
+    // sample keyid pulled from https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/
     keyring.import_raw(
         "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
         Algorithm::Ed25519,
