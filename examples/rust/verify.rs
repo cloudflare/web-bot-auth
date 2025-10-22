@@ -29,15 +29,15 @@ impl SignedMessage for MySignedMsg {
             }
             CoveredComponent::HTTP(HTTPField { name, .. }) => {
                 if name == "signature-agent" {
-                    return vec![String::from("\"https://myexample.com\"")];
+                    return vec![r#"agent1="https://myexample.com""#.to_string()];
                 }
 
                 if name == "signature" {
-                    return  vec!["sig1=:GXzHSRZ9Sf6WwLOZjxAhfE6WEUPfDMrVBJITsL2sbG8gtcZgqKe2Yn7uavk0iNQrfcPzgGq8h8Pk5osNGqdtCw==:".to_owned()];
+                    return vec![r#"sig1=:EZZ8VJcVQ9WgiUytQWAfEvRWLLu2O+UkJ15aVI//dfLTCLnr1Vg2CDXXlrW4D+OjBB6zu/UkFtxpKzbXh2ESBg==:"#.to_string()];
                 }
 
                 if name == "signature-input" {
-                    return vec![r#"sig1=("@authority" "signature-agent");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749332605;expires=1749332615"#.to_owned()];
+                    return vec![r#"sig1=("@authority" "signature-agent";key="agent1");keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1761143856;expires=1761143866"#.to_string()];
                 }
                 vec![]
             }
@@ -54,6 +54,7 @@ fn main() {
         0xd1, 0xbb,
     ];
     let mut keyring = KeyRing::default();
+    // sample keyid pulled from https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/
     keyring.import_raw(
         "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
         Algorithm::Ed25519,

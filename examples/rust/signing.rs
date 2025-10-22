@@ -15,7 +15,9 @@
 use indexmap::IndexMap;
 use std::{time::Duration, vec};
 use web_bot_auth::{
-    components::{CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParametersSet},
+    components::{
+        CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParameters, HTTPFieldParametersSet,
+    },
     keyring::Algorithm,
     message_signatures::{MessageSigner, UnsignedMessage},
 };
@@ -36,9 +38,11 @@ impl UnsignedMessage for MyThing {
             (
                 CoveredComponent::HTTP(HTTPField {
                     name: "signature-agent".to_string(),
-                    parameters: HTTPFieldParametersSet(vec![]),
+                    parameters: HTTPFieldParametersSet(vec![HTTPFieldParameters::Key(
+                        "agent1".to_string(),
+                    )]),
                 }),
-                "\"https://myexample.com\"".to_string(),
+                r#"agent1="https://myexample.com""#.to_string(),
             ),
         ])
     }
@@ -50,12 +54,14 @@ impl UnsignedMessage for MyThing {
 }
 
 fn main() {
-    // Signing a message
+    // Signing a message - private key pulled from https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/
+    // and only for example purposes.
     let private_key = vec![
         0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c, 0x0e,
         0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f, 0x6a, 0x7d,
         0x29, 0xc5,
     ];
+    // sample keyid pulled from https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/
     let signer = MessageSigner {
         keyid: "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".into(),
         nonce: "ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==".into(),
