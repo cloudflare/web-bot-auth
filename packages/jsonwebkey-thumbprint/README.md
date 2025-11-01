@@ -38,7 +38,7 @@ const decode = (u: ArrayBuffer) =>
   b64ToB64URL(b64ToB64NoPadding(u8ToB64(new Uint8Array(u))));
 
 // Compute the JWK Thumbprint for the public key
-console.log(await jwkThumbprint(jwk));
+console.log(await jwkThumbprint(jwk, hash, decode));
 
 // Helper functions
 const u8ToB64 = (u: Uint8Array) => btoa(String.fromCharCode(...u));
