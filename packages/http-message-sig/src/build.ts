@@ -1,4 +1,27 @@
-import { Component, Parameters, RequestLike, ResponseLike } from "./types";
+import {
+  Component,
+  Parameters,
+  RequestLike,
+  ResponseLike,
+  StructuredFieldComponent,
+} from "./types";
+
+export function extractStructuredFieldDictionaryHeader(
+  r: RequestLike | ResponseLike,
+  component: StructuredFieldComponent
+): string {
+  const headerValue = extractHeader(r, component.header);
+  if (!headerValue) return headerValue;
+
+  const items = headerValue.split(",").map((item) => item.trim());
+  for (const item of items) {
+    const [key, ...rest] = item.split("=");
+    if (key === component.key) {
+      return rest.join("=").replace(/^"|"$/g, "");
+    }
+  }
+  return "";
+}
 
 export function extractHeader(
   { headers }: RequestLike | ResponseLike,
@@ -74,13 +97,18 @@ export function extractComponent(
   }
 }
 
+const componentToString = (component: Component): string => {
+  if (typeof component === "string") {
+    return `"${component}"`.toLowerCase();
+  }
+  return `"${component.header}";key="${component.key}"`.toLocaleLowerCase();
+};
+
 export function buildSignatureInputString(
   componentNames: Component[],
   parameters: Parameters
 ): string {
-  const components = componentNames
-    .map((name) => `"${name.toLowerCase()}"`)
-    .join(" ");
+  const components = componentNames.map(componentToString).join(" ");
   const values = Object.entries(parameters)
     .map(([parameter, value]) => {
       if (typeof value === "number") return `;${parameter}=${value}`;
@@ -99,10 +127,15 @@ export function buildSignedData(
   signatureInputString: string
 ): string {
   const parts = components.map((component) => {
-    const value = component.startsWith("@")
-      ? extractComponent(request, component)
-      : extractHeader(request, component);
-    return `"${component.toLowerCase()}": ${value}`;
+    let value: string;
+    if (typeof component !== "string") {
+      value = extractStructuredFieldDictionaryHeader(request, component);
+    } else if (component.startsWith("@")) {
+      value = extractComponent(request, component);
+    } else {
+      value = extractHeader(request, component);
+    }
+    return `${componentToString(component)}: ${value}`;
   });
   parts.push(`"@signature-params": ${signatureInputString}`);
   return parts.join("\n");
