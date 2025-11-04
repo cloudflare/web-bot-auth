@@ -62,6 +62,11 @@ export type Parameter =
   | "keyid"
   | string;
 
+export interface StructuredFieldComponent {
+  header: string;
+  key: string;
+}
+
 export type Component =
   | "@method"
   | "@target-uri"
@@ -72,8 +77,10 @@ export type Component =
   | "@query"
   | "@query-param"
   | "@status"
+  | "@request-response"
   | string
-  | ComponentWithParameters;
+  | ComponentWithParameters
+  | StructuredFieldComponent;
 
 export interface ComponentWithParameters {
   name: string;
@@ -104,6 +111,7 @@ export type SignOptions = StandardParameters & {
   [name: Parameter]:
     | Component[]
     | ComponentWithParameters[]
+    | StructuredFieldComponent[]
     | Signer
     | string
     | number
@@ -120,6 +128,7 @@ export type SignSyncOptions = StandardParameters & {
   [name: Parameter]:
     | Component[]
     | ComponentWithParameters[]
+    | StructuredFieldComponent[]
     | SignerSync
     | string
     | number

@@ -57,6 +57,18 @@ export function validateNonce(nonce: string): boolean {
   }
 }
 
+export function recommendedComponents(
+  signatureAgentKey?: string
+): httpsig.Component[] {
+  if (signatureAgentKey) {
+    return [
+      "@authority",
+      { header: SIGNATURE_AGENT_HEADER, key: signatureAgentKey },
+    ];
+  }
+  return ["@authority"];
+}
+
 function getSigningOptions<
   T extends
     | httpsig.RequestLike
@@ -91,9 +103,18 @@ function getSigningOptions<
       components = REQUEST_COMPONENTS;
     }
   } else {
-    if (signatureAgent && !params.components.some(c => 
-    typeof c === 'string' ? c === SIGNATURE_AGENT_HEADER : c.name === SIGNATURE_AGENT_HEADER
-  )) {
+    if (
+      signatureAgent &&
+      !params.components.some((c) => {
+        if (typeof c === "string") {
+          return c === SIGNATURE_AGENT_HEADER;
+        }
+        if ("header" in c) {
+          return c.header === SIGNATURE_AGENT_HEADER;
+        }
+        return c.name === SIGNATURE_AGENT_HEADER;
+      })
+    ) {
       throw new Error(
         `${SIGNATURE_AGENT_HEADER} is required in params.components when included as a header param`
       );

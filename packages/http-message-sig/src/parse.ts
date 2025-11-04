@@ -4,6 +4,7 @@ import {
   HeaderValue,
   Parameter,
   Parameters,
+  StructuredFieldComponent,
 } from "./types";
 import { decode as base64Decode } from "./base64";
 import { parseDictionary, isInnerList } from "structured-headers";
@@ -64,6 +65,16 @@ function parseSfvDictionary(
           `Failed to parse parameter ${paramName} on ${component}: type is neither string nor boolean`
         );
       }
+    }
+
+    if (
+      componentParams.has("key") &&
+      typeof componentParams.get("key") === "string"
+    ) {
+      return {
+        header: component,
+        key: componentParams.get("key") as string,
+      } as StructuredFieldComponent;
     }
 
     return {

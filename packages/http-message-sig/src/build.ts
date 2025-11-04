@@ -5,8 +5,26 @@ import {
   RequestLike,
   ResponseLike,
   ResponseRequestPair,
+  StructuredFieldComponent,
 } from "./types";
 import { serializeItem } from "structured-headers";
+
+export function extractStructuredFieldDictionaryHeader(
+  r: RequestLike | ResponseLike,
+  component: StructuredFieldComponent
+): string {
+  const headerValue = extractHeader(r, component.header);
+  if (!headerValue) return headerValue;
+
+  const items = headerValue.split(",").map((item) => item.trim());
+  for (const item of items) {
+    const [key, ...rest] = item.split("=");
+    if (key === component.key) {
+      return rest.join("=").replace(/^"|"$/g, "");
+    }
+  }
+  return "";
+}
 
 export function extractHeader(
   { headers }: RequestLike | ResponseLike,
@@ -81,12 +99,22 @@ export function extractComponent(
   }
 }
 
+export function isStructuredFieldComponent(
+  component: Component
+): component is StructuredFieldComponent {
+  return (component as StructuredFieldComponent).header !== undefined;
+}
+
 export function serializeComponent(cwp: Component): string {
-  if (componentHasParameters(cwp)) {
-    return serializeItem(`${cwp.name.toLowerCase()}`, cwp.parameters);
+  if (typeof cwp === "string") {
+    return `"${cwp.toLowerCase()}"`;
   }
 
-  return `"${cwp.toLowerCase()}"`;
+  if (isStructuredFieldComponent(cwp)) {
+    return `"${cwp.header.toLowerCase()}";key="${cwp.key}"`;
+  }
+
+  return serializeItem(`${cwp.name.toLowerCase()}`, cwp.parameters);
 }
 
 export function isRawMessage(
@@ -154,12 +182,24 @@ export function buildSignedData(
 ): string {
   const parts = components.map((component) => {
     const messageToUse = resolveMessageKind(message, component);
-    const componentName = componentHasParameters(component)
-      ? component.name
-      : component;
-    const value = componentName.startsWith("@")
-      ? extractComponent(messageToUse, componentName)
-      : extractHeader(messageToUse, componentName);
+    let value: string;
+
+    if (typeof component === "string") {
+      value = component.startsWith("@")
+        ? extractComponent(messageToUse, component)
+        : extractHeader(messageToUse, component);
+    } else if (isStructuredFieldComponent(component)) {
+      value = extractStructuredFieldDictionaryHeader(
+        messageToUse,
+        component
+      );
+    } else {
+      const componentName = component.name;
+      value = componentName.startsWith("@")
+        ? extractComponent(messageToUse, componentName)
+        : extractHeader(messageToUse, componentName);
+    }
+
     return `${serializeComponent(component)}: ${value}`;
   });
   parts.push(`"@signature-params": ${signatureInputString}`);
