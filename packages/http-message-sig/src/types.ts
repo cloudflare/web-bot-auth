@@ -56,6 +56,11 @@ export type Parameter =
   | "keyid"
   | string;
 
+export interface StructuredFieldComponent {
+  header: string;
+  key: string;
+}
+
 export type Component =
   | "@method"
   | "@target-uri"
@@ -67,7 +72,8 @@ export type Component =
   | "@query-param"
   | "@status"
   | "@request-response"
-  | string;
+  | string
+  | StructuredFieldComponent;
 
 interface StandardParameters {
   expires?: Date;

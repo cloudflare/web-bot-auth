@@ -18,21 +18,14 @@ export { helpers } from "./crypto";
 
 export const HTTP_MESSAGE_SIGNAGURE_TAG = "web-bot-auth";
 export const SIGNATURE_AGENT_HEADER = "signature-agent";
-export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = [
-  "@authority",
-];
-export const REQUEST_COMPONENTS: httpsig.Component[] = [
-  "@authority",
-  SIGNATURE_AGENT_HEADER,
-];
 export const NONCE_LENGTH_IN_BYTES = 64;
 
 export interface SignatureParams {
+  components: httpsig.Component[];
   created: Date;
   expires: Date;
   nonce?: string;
   key?: string;
-  components?: httpsig.Component[];
 }
 
 export interface VerificationParams {
@@ -57,6 +50,18 @@ export function validateNonce(nonce: string): boolean {
   }
 }
 
+export function recommendedComponents(
+  signatureAgentKey?: string
+): httpsig.Component[] {
+  if (signatureAgentKey) {
+    return [
+      "@authority",
+      { header: SIGNATURE_AGENT_HEADER, key: signatureAgentKey },
+    ];
+  }
+  return ["@authority"];
+}
+
 function getSigningOptions<
   T extends httpsig.RequestLike | httpsig.ResponseLike,
 >(
@@ -76,25 +81,21 @@ function getSigningOptions<
     }
   }
   const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
-  let components: string[];
-  if (!params.components) {
-    // `extractHeader` returns "" instead of throwing or null when the header does not exist
-    if (!signatureAgent) {
-      components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
-    } else {
-      components = REQUEST_COMPONENTS;
-    }
-  } else {
-    if (signatureAgent && components.indexOf("SIGNATURE_AGENT_HEADER") === -1) {
-      throw new Error(
-        `${SIGNATURE_AGENT_HEADER} is required in params.component when included as a header param`
-      );
-    }
-    components = params.components;
+  if (
+    signatureAgent &&
+    !params.components.find(
+      (c) =>
+        (typeof c !== "string" && c.header === SIGNATURE_AGENT_HEADER) ||
+        c === SIGNATURE_AGENT_HEADER
+    )
+  ) {
+    throw new Error(
+      `${SIGNATURE_AGENT_HEADER} is required in params.component when included as a header param`
+    );
   }
 
   return {
-    components,
+    components: params.components,
     created: params.created,
     expires: params.expires,
     nonce,

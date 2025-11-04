@@ -209,6 +209,8 @@ describe("build", () => {
         "Content-Type": "application/json",
         Digest: "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=",
         "Content-Length": "18",
+        "Test-Structured-Field":
+          'one-key="random", test-key="test-value", another-key=42',
       },
     };
 
@@ -235,6 +237,21 @@ describe("build", () => {
         '"@authority": example.com\n' +
           '"content-type": application/json\n' +
           '"@signature-params": ("@authority" "content-type");created=1618884475;keyid="test-key-rsa-pss"'
+      );
+    });
+
+    it("constructs structured-field dictionary example", () => {
+      const components: Component[] = [
+        { header: "Test-Structured-Field", key: "test-key" },
+      ];
+      const data = buildSignedData(
+        testRequest,
+        components,
+        '("test-structured-field";key="test-key");created=1618884475;keyid="test-key-rsa-pss"'
+      );
+      expect(data).to.equal(
+        '"test-structured-field";key="test-key": test-value\n' +
+          '"@signature-params": ("test-structured-field";key="test-key");created=1618884475;keyid="test-key-rsa-pss"'
       );
     });
 

@@ -6,11 +6,15 @@ import {
   NONCE_LENGTH_IN_BYTES,
   SIGNATURE_AGENT_HEADER,
   verify,
+  recommendedComponents,
 } from "../src/index";
 import { signerFromJWK, verifierFromJWK } from "../src/crypto";
 import { b64Tou8, u8ToB64 } from "../src/base64";
 
-import vectors from "./test_data/web_bot_auth_architecture_v1.json";
+import vectors1 from "./test_data/web_bot_auth_architecture_v1.json";
+import vector2 from "./test_data/web_bot_auth_architecture_v2.json";
+
+const vectors = [...vectors1, ...vector2];
 type Vectors = (typeof vectors)[number];
 
 describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
@@ -23,6 +27,11 @@ describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
     }
     const request = new Request(v.target_url, { headers });
     const signedHeaders = await signatureHeaders(request, signer, {
+      components: Object.hasOwnProperty.call(v, "signature_agent_key")
+        ? recommendedComponents(v["signature_agent_key"])
+        : v.signature_agent
+          ? ["@authority", "signature-agent"]
+          : recommendedComponents(),
       created: new Date(v.created_ms),
       expires: new Date(v.expires_ms),
       nonce: v.nonce,

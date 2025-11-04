@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsup src/index.ts src/crypto.ts --format cjs,esm --dts --clean",
-    "generate-test-vectors": "node --experimental-transform-types scripts/test-vectors.ts test/test_data/web_bot_auth_architecture_v1.json",
+    "generate-test-vectors": "npm run build && node --experimental-transform-types scripts/test-vectors.ts test/test_data/web_bot_auth_architecture_v2.json",
     "prepublishOnly": "npm run build",
     "test": "vitest",
     "watch": "npm run build -- --watch src"
