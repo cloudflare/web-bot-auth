@@ -110,11 +110,11 @@ describe("build", () => {
       const result = extractComponent(
         {
           method: "POST",
-          url: "https://www.example.com/path?param=value",
+          url: "https://www.example.com/%7epath?param=value",
         } as unknown as RequestLike,
         "@path"
       );
-      expect(result).to.equal("/path");
+      expect(result).to.equal("/~path");
     });
 
     it("correctly extracts the @query", () => {
