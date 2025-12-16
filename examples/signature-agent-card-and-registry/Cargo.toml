@@ -1,0 +1,29 @@
+[package]
+name = "signature-agent-card-and-registry"
+description = "Signature agent card and registry served over Cloudflare workers"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = { version = "0.7", features = ['http'] }
+worker-macros = { version = "0.7", features = ['http'] }
+web-bot-auth = { workspace = true }
+ed25519-dalek = { version = "2.2.0", features = ['rand_core'] }
+rand = "0.6.4"
+rand_chacha = "0.3.1"
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+time = { workspace = true }

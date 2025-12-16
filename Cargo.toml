@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/*",
-    "examples/rust"
+    "examples/rust",
+    "examples/signature-agent-card-and-registry"
 ]
 resolver = "2"
 
