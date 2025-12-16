@@ -1,5 +1,3 @@
 dist/
 node_modules/
 target/
-examples/signature-agent-card-and-registry/build/
-examples/signature-agent-card-and-registry/.wrangler/

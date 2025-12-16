@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::SigningKey;
 use indexmap::map::IndexMap;
-use rand_chacha::rand_core::{RngCore, SeedableRng};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::Duration;
@@ -11,6 +11,20 @@ use web_bot_auth::{
     message_signatures::{MessageSigner, UnsignedMessage},
 };
 use worker::*;
+
+const README: &str = r#"
+<h1>Example Signature Agent Card and Registry on Cloudflare Workers</h1>
+<p>This deploys a <a href="https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/">registry and a signature agent card</a> 
+on the same host: a Cloudflare worker.
+<h2>Instructions</h2>
+<ol>
+    <li>Navigate to <a href="/.well-known/http-message-signatures-directory"><code>/.well-known/http-message-signatures-directory</code></a> to view a generated Signature Agent card on demand.</li>
+    <li>Navigate to <a href="/registry.txt"><code>/registry.txt</code></a> to view a generated registry linking to that Signature Agent card.</li>
+</ol>
+<h3>Customize</h3>
+You can add a worker binding and multiple custom routes, and visit <a href="/.well-known/http-message-signatures-directory"><code>/.well-known/http-message-signatures-directory</code></a> on each custom route. 
+This will automatically populate your registry with multiple, unique entries.
+"#;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct SignatureAgentCard {
@@ -58,14 +72,20 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
     let host = req.uri().host().ok_or(worker::Error::RouteNoDataError)?;
 
     match req.uri().path() {
-        "/" => {
+        "/registry.txt" => {
+            let scheme = req
+                .uri()
+                .scheme_str()
+                .ok_or(worker::Error::RouteNoDataError)?
+                .to_string();
             let list = kv.list().limit(1000).execute().await?;
             Response::ok(
                 list.keys
                     .into_iter()
                     .map(|key| {
                         format!(
-                            "https://{}/.well-known/http-message-signatures-directory",
+                            "{}://{}/.well-known/http-message-signatures-directory",
+                            scheme.clone(),
                             key.name.clone()
                         )
                     })
@@ -74,9 +94,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             )
         }
         "/.well-known/http-message-signatures-directory" => {
-            // Safe to use `seed_from_u64` even though it is marked not for crypto use -
-            // we don't care about generated keypairs or nonces - we will literally never use them
-            let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(1234_u64);
+            let mut rng = rand::rngs::OsRng;
 
             let vectorized_keypair: Vec<u8> = match kv.get(host).bytes().await? {
                 Some(pair) => pair,
@@ -154,6 +172,6 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             headers.set("signature", &signature_header)?;
             Ok(response)
         }
-        _ => Ok(Response::empty()?),
+        _ => Response::from_html(README),
     }
 }

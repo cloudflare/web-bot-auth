@@ -9,3 +9,7 @@ Instructions:
 - Navigate to `http://localhost:8787` to view a registry containing this host. Note: this will not be generated until after you've visited `/.well-known/http-message-signatures-directory`, since the card will not exist until then.
 
 This configuration allows you to attach multiple routes and generate an SAC for each one, all viewable in the registry. 
+
+## Warning
+
+The JSON web keys produced by this worker are *not cryptographically secure*. You should not use any of the private or public keys generated for message signing or verifying outside of this host. This example is only suitable for insecure use.
