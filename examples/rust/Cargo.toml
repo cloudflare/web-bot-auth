@@ -25,7 +25,7 @@ path = "verify.rs"
 
 [dependencies]
 indexmap = { workspace = true }
-time = {workspace = true}
+time = { workspace = true }
 
 # workspace dependencies
 web-bot-auth = { workspace = true }

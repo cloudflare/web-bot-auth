@@ -113,7 +113,7 @@ impl ParameterDetails {
                     return now >= expiry;
                 }
 
-                return true;
+                true
             }),
             nonce_is_invalid: self.nonce.as_ref().map(nonce_validator),
         }

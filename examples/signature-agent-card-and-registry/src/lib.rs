@@ -1,4 +1,4 @@
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::SigningKey;
 use indexmap::map::IndexMap;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
@@ -59,12 +59,16 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
 
     match req.uri().path() {
         "/" => {
-            println!("got here");
             let list = kv.list().limit(1000).execute().await?;
             Response::ok(
                 list.keys
                     .into_iter()
-                    .map(|key| format!("https://{}", key.name.clone()))
+                    .map(|key| {
+                        format!(
+                            "https://{}/.well-known/http-message-signatures-directory",
+                            key.name.clone()
+                        )
+                    })
                     .collect::<Vec<String>>()
                     .join("\n"),
             )
@@ -123,12 +127,10 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             rng.fill_bytes(&mut nonce);
 
             let signer = MessageSigner {
-                keyid: thumbprint.into(),
-                nonce: general_purpose::STANDARD.encode(nonce).into(),
-                tag: "http-message-signatures-directory".into(),
+                keyid: thumbprint,
+                nonce: general_purpose::STANDARD.encode(nonce),
+                tag: "http-message-signatures-directory".to_string(),
             };
-
-            println!("I got here");
 
             signer
                 .generate_signature_headers_content(
