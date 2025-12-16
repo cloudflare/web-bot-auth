@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use indexmap::IndexMap;
-use std::{time::Duration, vec};
+use time::Duration;
 use web_bot_auth::{
     components::{
         CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParameters, HTTPFieldParametersSet,
@@ -71,7 +71,7 @@ fn main() {
     signer
         .generate_signature_headers_content(
             &mut headers,
-            Duration::from_secs(10),
+            Duration::seconds(10),
             Algorithm::Ed25519,
             &private_key,
         )
