@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "crates/*",
-    "examples/rust"
+    "examples/rust",
+    "examples/signature-agent-card-and-registry"
 ]
 resolver = "2"
 
@@ -31,6 +32,7 @@ base64 = "0.22.1"
 serde_json = "1.0.140"
 data-url = "0.3.1"
 regex = "1.12.2"
+time = { version = "0.3.44" }
 
 # workspace dependencies
 web-bot-auth = { version = "0.5.1", path = "./crates/web-bot-auth" }

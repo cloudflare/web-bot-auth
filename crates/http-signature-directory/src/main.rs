@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 use clap::Parser;
-use log::{debug, info};
+use log::{debug, error, info};
 use reqwest::{
     Url,
     blocking::Client,
@@ -70,7 +70,10 @@ struct SignedDirectory {
 impl SignedMessage for SignedDirectory {
     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
         match name {
-            CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+            CoveredComponent::Derived(DerivedComponent::Authority { req: true }) => {
+                error!(
+                    "Expected `@authority`;req in signature input components, but did not find it"
+                );
                 vec![self.authority.clone()]
             }
             CoveredComponent::HTTP(HTTPField { name, .. }) => {
@@ -129,7 +132,7 @@ fn main() -> Result<(), String> {
 
     let authority = url.authority();
     debug!(
-        "Extracted the following @authority component: {:?}",
+        "Assumed the following @authority component: {:?}",
         authority
     );
 
@@ -328,7 +331,7 @@ fn main() -> Result<(), String> {
                                     }
                                     Err(err) => {
                                         key_info.error = Some(format!(
-                                            "Signature verification failed: {:?}",
+                                            "Generated signature was incorrect, leading to verification failure, because: {:?}",
                                             err
                                         ));
                                     }

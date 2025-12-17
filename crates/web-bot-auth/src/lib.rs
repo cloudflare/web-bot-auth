@@ -30,7 +30,6 @@ use message_signatures::{MessageVerifier, ParsedLabel, SignatureTiming, SignedMe
 
 use data_url::DataUrl;
 use keyring::{Algorithm, JSONWebKeySet, KeyRing};
-use std::time::SystemTimeError;
 
 use crate::components::{HTTPField, HTTPFieldParameters};
 
@@ -78,10 +77,6 @@ pub enum ImplementationError {
     /// This is considered "impossible" as invalid values should not be present in the structure
     /// containing those values.
     SignatureParamsSerialization,
-    /// Verification of `created` or `expires` component parameter requires use of a system clock.
-    /// This error is thrown if the system clock is configured in ways that prevent adequate time
-    /// resolution, such as the clock believes the start of Unix time is in the future.
-    TimeError(SystemTimeError),
     /// A wrapper around `WebBotAuthError`
     WebBotAuth(WebBotAuthError),
 }
@@ -319,8 +314,8 @@ mod tests {
         assert!(advisory.is_expired.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
         let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.as_nanos() > 0);
-        assert!(timing.verification.as_nanos() > 0);
+        assert!(timing.generation.whole_nanoseconds() > 0);
+        assert!(timing.verification.whole_nanoseconds() > 0);
     }
 
     #[test]
@@ -402,7 +397,7 @@ mod tests {
         signer
             .generate_signature_headers_content(
                 &mut mytest,
-                std::time::Duration::from_secs(10),
+                time::Duration::seconds(10),
                 Algorithm::Ed25519,
                 &private_key.to_vec(),
             )
@@ -419,8 +414,8 @@ mod tests {
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
 
         let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.as_nanos() > 0);
-        assert!(timing.verification.as_nanos() > 0);
+        assert!(timing.generation.whole_nanoseconds() > 0);
+        assert!(timing.verification.whole_nanoseconds() > 0);
     }
 
     #[test]

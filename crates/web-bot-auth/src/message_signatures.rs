@@ -6,7 +6,7 @@ use regex::bytes::Regex;
 use sfv::SerializeValue;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use time::{Duration, UtcDateTime};
 static OBSOLETE_LINE_FOLDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s*\r\n\s+").unwrap());
 
@@ -108,16 +108,12 @@ impl ParameterDetails {
     {
         SecurityAdvisory {
             is_expired: self.expires.map(|expires| {
-                if expires <= 0 {
-                    return true;
+                if let Ok(expiry) = UtcDateTime::from_unix_timestamp(expires) {
+                    let now = UtcDateTime::now();
+                    return now >= expiry;
                 }
 
-                match SystemTime::now().duration_since(UNIX_EPOCH) {
-                    Ok(duration) => i64::try_from(duration.as_secs())
-                        .map(|dur| dur >= expires)
-                        .unwrap_or(true),
-                    Err(_) => true,
-                }
+                true
             }),
             nonce_is_invalid: self.nonce.as_ref().map(nonce_validator),
         }
@@ -329,31 +325,17 @@ impl MessageSigner {
             ),
         );
 
-        let created = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(ImplementationError::TimeError)?;
+        let created = UtcDateTime::now();
         let expiry = created + expires;
-
-        let created_as_i64 = i64::try_from(created.as_secs()).map_err(|_| {
-            ImplementationError::ParsingError(
-                "Clock time does not fit in i64, verfy your clock is set correctly".into(),
-            )
-        })?;
-        let expires_as_i64 = i64::try_from(expiry.as_secs()).map_err(|_| {
-            ImplementationError::ParsingError(
-                "Clcok time + `expires` value does not fit in i64, verfy your duration is valid"
-                    .into(),
-            )
-        })?;
 
         sfv_parameters.insert(
             sfv::KeyRef::constant("created").to_owned(),
-            sfv::BareItem::Integer(sfv::Integer::constant(created_as_i64)),
+            sfv::BareItem::Integer(sfv::Integer::constant(created.unix_timestamp())),
         );
 
         sfv_parameters.insert(
             sfv::KeyRef::constant("expires").to_owned(),
-            sfv::BareItem::Integer(sfv::Integer::constant(expires_as_i64)),
+            sfv::BareItem::Integer(sfv::Integer::constant(expiry.unix_timestamp())),
         );
 
         let (signature_base, signature_params_content) = SignatureBase {
@@ -529,9 +511,9 @@ impl MessageVerifier {
                 .and_then(|key| keyring.get(key)),
         })
         .ok_or(ImplementationError::NoSuchKey)?;
-        let generation = Instant::now();
+        let generation = UtcDateTime::now();
         let (base_representation, _) = self.parsed.base.into_ascii()?;
-        let generation = generation.elapsed();
+        let generation = UtcDateTime::now() - generation;
         match &keying_material.0 {
             Algorithm::Ed25519 => {
                 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -541,13 +523,13 @@ impl MessageVerifier {
                 let sig = Signature::try_from(self.parsed.signature.as_slice())
                     .map_err(|_| ImplementationError::InvalidSignatureLength)?;
 
-                let verification = Instant::now();
+                let verification = UtcDateTime::now();
                 verifying_key
                     .verify(base_representation.as_bytes(), &sig)
                     .map_err(ImplementationError::FailedToVerify)
                     .map(|()| SignatureTiming {
                         generation,
-                        verification: verification.elapsed(),
+                        verification: UtcDateTime::now() - verification,
                     })
             }
             other => Err(ImplementationError::UnsupportedAlgorithm(other.clone())),
@@ -615,8 +597,8 @@ mod tests {
         );
         let verifier = MessageVerifier::parse(&test, |(_, _)| true).unwrap();
         let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.as_nanos() > 0);
-        assert!(timing.verification.as_nanos() > 0);
+        assert!(timing.generation.whole_nanoseconds() > 0);
+        assert!(timing.verification.whole_nanoseconds() > 0);
     }
 
     #[test]
@@ -669,7 +651,7 @@ mod tests {
             signer
                 .generate_signature_headers_content(
                     &mut test,
-                    Duration::from_secs(10),
+                    Duration::seconds(10),
                     Algorithm::Ed25519,
                     &private_key.to_vec()
                 )
