@@ -15,7 +15,7 @@ use worker::*;
 const README: &str = r#"
 <h1>Example Signature Agent Card and Registry on Cloudflare Workers</h1>
 <p>This deploys a <a href="https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/">registry and a signature agent card</a> 
-on the same host: a Cloudflare worker.
+on the same authority: a Cloudflare worker.
 <h2>Instructions</h2>
 <ol>
     <li>Navigate to <a href="/.well-known/http-message-signatures-directory"><code>/.well-known/http-message-signatures-directory</code></a> to view a generated Signature Agent card on demand.</li>
@@ -34,9 +34,9 @@ struct SignatureAgentCard {
 }
 
 struct SignatureHeaderGenerator<'a> {
-    req: &'a HttpRequest,
+    authority: String,
     digest_header: String,
-    outputs: (String, String),
+    response_headers: &'a mut worker::Headers,
 }
 
 impl UnsignedMessage for SignatureHeaderGenerator<'_> {
@@ -46,7 +46,7 @@ impl UnsignedMessage for SignatureHeaderGenerator<'_> {
         IndexMap::from_iter([
             (
                 CoveredComponent::Derived(DerivedComponent::Authority { req: true }),
-                self.req.uri().host().unwrap().to_string(),
+                self.authority.clone(),
             ),
             (
                 CoveredComponent::HTTP(HTTPField {
@@ -59,17 +59,24 @@ impl UnsignedMessage for SignatureHeaderGenerator<'_> {
     }
 
     fn register_header_contents(&mut self, signature_input: String, signature_header: String) {
-        self.outputs = (
-            format!("sig1={}", signature_input),
-            format!("sig1={}", signature_header),
-        )
+        let _ = self
+            .response_headers
+            .set("signature-input", &(format!("sig1={}", signature_input)));
+        let _ = self
+            .response_headers
+            .set("signature", &(format!("sig1={}", signature_header)));
     }
 }
 
 #[event(fetch)]
 async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
     let kv = env.kv("signed-agent-registry-hostnames")?;
-    let host = req.uri().host().ok_or(worker::Error::RouteNoDataError)?;
+    let authority = format!(
+        "{}",
+        req.uri()
+            .authority()
+            .ok_or(worker::Error::RouteNoDataError)?
+    );
 
     match req.uri().path() {
         "/registry.txt" => {
@@ -95,13 +102,12 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
         }
         "/.well-known/http-message-signatures-directory" => {
             let mut rng = rand::rngs::OsRng;
-
-            let vectorized_keypair: Vec<u8> = match kv.get(host).bytes().await? {
+            let vectorized_keypair: Vec<u8> = match kv.get(&authority).bytes().await? {
                 Some(pair) => pair,
                 None => {
                     let signing_key: SigningKey = SigningKey::generate(&mut rng);
                     let keypair = signing_key.to_keypair_bytes().to_vec();
-                    kv.put_bytes(host, &keypair)?.execute().await?;
+                    kv.put_bytes(&authority, &keypair)?.execute().await?;
                     keypair
                 }
             };
@@ -121,7 +127,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             let thumbprint = thumbprintable.b64_thumbprint();
 
             let card = SignatureAgentCard {
-                client_name: host.to_string(),
+                client_name: authority.to_string(),
                 contacts: vec!["test@example.com".to_string()],
                 keys: vec![thumbprintable],
             };
@@ -131,18 +137,26 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             let mut hasher = Sha256::new();
             hasher.update(&body);
             let digest_header = format!(
-                "sha-256=:{}=",
+                "sha-256=:{}:",
                 general_purpose::STANDARD.encode(hasher.finalize())
             );
 
-            let mut generator = SignatureHeaderGenerator {
-                req: &req,
-                digest_header: digest_header.clone(),
-                outputs: (String::new(), String::new()),
-            };
-
             let mut nonce: [u8; 64] = [0; 64];
             rng.fill_bytes(&mut nonce);
+
+            let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
+            let headers = response.headers_mut();
+            headers.set("content-digest", &digest_header)?;
+            headers.set(
+                "content-type",
+                "application/http-message-signatures-directory+json",
+            )?;
+
+            let mut generator = SignatureHeaderGenerator {
+                authority,
+                digest_header: digest_header.clone(),
+                response_headers: headers,
+            };
 
             let signer = MessageSigner {
                 keyid: thumbprint,
@@ -158,18 +172,6 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
                     &(signing_key.as_bytes().to_vec()),
                 )
                 .unwrap();
-
-            let (signature_input, signature_header) = generator.outputs.clone();
-
-            let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
-            let headers = response.headers_mut();
-            headers.set("content-digest", &digest_header)?;
-            headers.set(
-                "content-type",
-                "application/http-message-signatures-directory+json",
-            )?;
-            headers.set("signature-input", &signature_input)?;
-            headers.set("signature", &signature_header)?;
             Ok(response)
         }
         _ => Response::from_html(README),
