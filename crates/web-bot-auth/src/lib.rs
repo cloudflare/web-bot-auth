@@ -149,13 +149,13 @@ impl WebBotAuthVerifier {
 
         let mut signature_agent_key: Option<String> = None;
         'outer_loop: for (component, _) in message_verifier.parsed.base.components.iter() {
-            if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component {
-                if name == "signature-agent" {
-                    for parameter in parameters.0.iter() {
-                        if let HTTPFieldParameters::Key(key) = parameter {
-                            signature_agent_key = Some(key.clone());
-                            break 'outer_loop;
-                        }
+            if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component
+                && name == "signature-agent"
+            {
+                for parameter in parameters.0.iter() {
+                    if let HTTPFieldParameters::Key(key) = parameter {
+                        signature_agent_key = Some(key.clone());
+                        break 'outer_loop;
                     }
                 }
             }
@@ -171,12 +171,10 @@ impl WebBotAuthVerifier {
                 let mediatype = url.mime_type();
                 if mediatype.type_ == "application"
                     && mediatype.subtype == "http-message-signatures-directory"
+                    && let Ok((body, _)) = url.decode_to_vec()
+                    && let Ok(jwks) = serde_json::from_slice::<JSONWebKeySet>(&body)
                 {
-                    if let Ok((body, _)) = url.decode_to_vec() {
-                        if let Ok(jwks) = serde_json::from_slice::<JSONWebKeySet>(&body) {
-                            return Some(SignatureAgentLink::Inline(jwks));
-                        }
-                    }
+                    return Some(SignatureAgentLink::Inline(jwks));
                 }
             }
 

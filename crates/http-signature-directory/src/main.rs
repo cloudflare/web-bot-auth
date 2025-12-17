@@ -84,11 +84,11 @@ impl SignedMessage for SignedDirectory<'_> {
                 vec![]
             }
             CoveredComponent::HTTP(HTTPField { name, .. }) => {
-                if let Some(header) = self.headers.get(name) {
-                    if let Ok(value) = header.to_str() {
-                        debug!("Found {} for header {}", value, name);
-                        return vec![String::from(value)];
-                    }
+                if let Some(header) = self.headers.get(name)
+                    && let Ok(value) = header.to_str()
+                {
+                    debug!("Found {} for header {}", value, name);
+                    return vec![String::from(value)];
                 }
 
                 debug!("No value for header {:?} found", name);
@@ -313,8 +313,7 @@ fn main() -> Result<(), String> {
                                     .and_then(|tag| tag.as_string())
                                     .is_some_and(|tag| tag.as_str() == thumbprint)
                                 && innerlist.items.iter().any(|item| {
-                                    (*item)
-                                        .bare_item
+                                    item.bare_item
                                         .as_string()
                                         .is_some_and(|s| (*s).as_str() == "@authority")
                                 })

@@ -39,6 +39,12 @@ This deployment allows to test your implementation.
 | [Caddy Plugin](./examples/caddy-plugin/)               | Verify RFC 9421 `Signature` for every incoming request |
 | [Rust](./examples/rust/)                               | Verify a sample test request                           |
 
+### HTTP Signature Directories
+
+| Example                                                            | Description                                                    |
+| :----------------------------------------------------------------- | :------------------------------------------------------------- |
+| [Cloudflare Workers](./examples/signature-agent-card-and-registry) | Host a signature directory on Cloudflare Workers, using the [signature agent card and registry](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/) format |
+
 ## Development
 
 This repository uses [npm](https://docs.npmjs.com/cli/v11/using-npm/workspaces) and [cargo](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html) workspaces. There are several packages which it provides:

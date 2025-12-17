@@ -47,7 +47,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Set rust toolchain
-        run: rustup override set 1.87 && rustup component add clippy rustfmt && rustup target add wasm32-unknown-unknown
+        run: rustup component add clippy rustfmt && rustup target add wasm32-unknown-unknown
       - run: cargo fetch
       - run: cargo build --all --verbose --all-features --tests
       - run: cargo build --all --verbose --exclude http-signature-directory --all-features --tests --target wasm32-unknown-unknown
@@ -85,8 +85,6 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Set rust toolchain
-        run: rustup override set 1.87
       - run: cargo publish -p web-bot-auth # will fail if we don't bump the version
         continue-on-error: true
       - run: cargo publish -p http-signature-directory # will fail if we don't bump the version
