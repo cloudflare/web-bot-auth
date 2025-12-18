@@ -1,70 +1,44 @@
-import { Component, HeaderValue, Parameter, Parameters } from "./types";
+import {
+  Component,
+  ComponentParameters,
+  HeaderValue,
+  Parameter,
+  Parameters,
+} from "./types";
 import { decode as base64Decode } from "./base64";
+import { parseDictionary, isInnerList } from "structured-headers";
 
-function parseEntry(
-  headerName: string,
-  entry: string
-): [string, string | number | true | (string | number)[]] {
-  // this is wrong. it should only split the first `=`
-  const equalsIndex = entry.indexOf("=");
-  if (equalsIndex === -1) {
-    return [entry.trim(), true];
-  }
-  const key = entry.slice(0, equalsIndex);
-  const value = entry.slice(equalsIndex + 1).trim();
-  if (key.length === 0) {
-    throw new Error(`Invalid ${headerName} header. Invalid value ${entry}`);
-  }
-
-  if (value.match(/^".*"$/)) return [key.trim(), value.slice(1, -1)];
-  if (value.match(/^\d+$/)) return [key.trim(), parseInt(value)];
-
-  if (value.match(/^\(.*\)$/)) {
-    const arr = value
-      .slice(1, -1)
-      .split(/\s+/)
-      .map((entry) => entry.match(/^"(.*)"$/)?.[1] ?? parseInt(entry));
-
-    if (arr.some((value) => typeof value === "number" && isNaN(value))) {
-      throw new Error(
-        `Invalid ${headerName} header. Invalid value ${key}=${value}`
-      );
-    }
-
-    return [key.trim(), arr];
-  }
-
-  throw new Error(
-    `Invalid ${headerName} header. Invalid value ${key}=${value}`
-  );
-}
-
-function parseParametersHeader(
+function parseSfvDictionary(
   name: string,
   header: HeaderValue
 ): { key: string; components: Component[]; parameters: Parameters } {
-  const entries = header
-    .toString()
-    // eslint-disable-next-line security/detect-unsafe-regex
-    .match(/(?:[^;"]+|"[^"]+")+/g)
-    ?.map((entry) => parseEntry(name, entry.trim()));
+  let dictionary;
+  try {
+    dictionary = parseDictionary(header.toString());
+  } catch (error) {
+    throw new Error(
+      `Invalid ${name} header; failed to parse as RFC 8941 dictionary: ${(error as Error).message}`
+    );
+  }
 
-  if (!entries) throw new Error(`Invalid ${name} header. Invalid value`);
-
-  const componentsIndex = entries.findIndex(([, value]) =>
-    Array.isArray(value)
-  );
-  if (componentsIndex === -1)
-    throw new Error(`Invalid ${name} header. Missing components`);
-  const [[key, components]] = entries.splice(componentsIndex, 1) as [
-    [string, Component[]],
-  ];
-
-  if (entries.some(([, value]) => Array.isArray(value))) {
+  if (dictionary.size > 1) {
     throw new Error(`Multiple signatures is not supported`);
   }
 
-  const parameters = Object.fromEntries(entries) as Record<
+  const entry = dictionary.entries().next();
+
+  if (!entry.value) {
+    throw new Error(`Invalid ${name} header. Invalid value`);
+  }
+
+  const [key, innerlist] = entry.value;
+  if (!isInnerList(innerlist)) {
+    throw new Error(`Invalid ${name} header. Missing components`);
+  }
+
+  const [cwp, params] = innerlist;
+
+  const parameters: Parameters = Object.fromEntries(params) as Record<
     Parameter,
     string | number | Date
   >;
@@ -72,6 +46,31 @@ function parseParametersHeader(
     parameters.created = new Date(parameters.created * 1000);
   if (typeof parameters.expires === "number")
     parameters.expires = new Date(parameters.expires * 1000);
+
+  const components: Component[] = cwp.map(([component, componentParams]) => {
+    if (typeof component !== "string") {
+      throw new Error(
+        `Failed to parse component ${component} in component list: type is not string`
+      );
+    }
+
+    if (componentParams.size === 0) {
+      return component;
+    }
+
+    for (const [paramName, paramValue] of componentParams.entries()) {
+      if (typeof paramValue !== "string" && typeof paramValue !== "boolean") {
+        throw new Error(
+          `Failed to parse parameter ${paramName} on ${component}: type is neither string nor boolean`
+        );
+      }
+    }
+
+    return {
+      name: component,
+      parameters: componentParams as ComponentParameters,
+    };
+  });
 
   return { key, components, parameters };
 }
@@ -81,7 +80,7 @@ export function parseSignatureInputHeader(header: HeaderValue): {
   components: Component[];
   parameters: Parameters;
 } {
-  return parseParametersHeader("Signature-Input", header);
+  return parseSfvDictionary("Signature-Input", header);
 }
 
 export function parseAcceptSignatureHeader(header: HeaderValue): {
@@ -89,10 +88,13 @@ export function parseAcceptSignatureHeader(header: HeaderValue): {
   components: Component[];
   parameters: Parameters;
 } {
-  return parseParametersHeader("Accept-Signature", header);
+  return parseSfvDictionary("Accept-Signature", header);
 }
 
-export function parseSignatureHeader(key, header: HeaderValue): Uint8Array {
+export function parseSignatureHeader(
+  key: string,
+  header: HeaderValue
+): Uint8Array {
   const signatureMatch = header
     .toString()
     .match(/^([\w-]+)=:([A-Za-z0-9+/=]+):$/);

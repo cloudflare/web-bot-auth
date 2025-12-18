@@ -3,11 +3,16 @@ import {
   Parameters,
   RequestLike,
   ResponseLike,
+  ResponseRequestPair,
   SignatureHeaders,
   SignOptions,
   SignSyncOptions,
 } from "./types";
-import { buildSignatureInputString, buildSignedData } from "./build";
+import {
+  buildSignatureInputString,
+  buildSignedData,
+  resolveMessageKind,
+} from "./build";
 import { encode as base64Encode } from "./base64";
 
 const defaultRequestComponents: Component[] = [
@@ -18,21 +23,21 @@ const defaultRequestComponents: Component[] = [
   "content-type",
   "digest",
 ];
+
 const defaultResponseComponents: Component[] = [
   "@status",
   "content-type",
   "digest",
 ];
 
-export async function signatureHeaders<T extends RequestLike | ResponseLike>(
-  message: T,
-  opts: SignOptions
-): Promise<SignatureHeaders> {
+export async function signatureHeaders<
+  T extends RequestLike | ResponseLike | ResponseRequestPair,
+>(message: T, opts: SignOptions): Promise<SignatureHeaders> {
   const { signer, components: _components, key: _key, ...params } = opts;
 
   const components =
     _components ??
-    ("status" in message
+    ("status" in resolveMessageKind(message)
       ? defaultResponseComponents
       : defaultRequestComponents);
   const key = _key ?? "sig1";
@@ -59,15 +64,14 @@ export async function signatureHeaders<T extends RequestLike | ResponseLike>(
   };
 }
 
-export function signatureHeadersSync<T extends RequestLike | ResponseLike>(
-  message: T,
-  opts: SignSyncOptions
-): SignatureHeaders {
+export function signatureHeadersSync<
+  T extends RequestLike | ResponseLike | ResponseRequestPair,
+>(message: T, opts: SignSyncOptions): SignatureHeaders {
   const { signer, components: _components, key: _key, ...params } = opts;
 
   const components =
     _components ??
-    ("status" in message
+    ("status" in resolveMessageKind(message)
       ? defaultResponseComponents
       : defaultRequestComponents);
   const key = _key ?? "sig1";

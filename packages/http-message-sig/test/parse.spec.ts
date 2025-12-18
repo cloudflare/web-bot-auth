@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  parseAcceptSignatureHeader,
-  parseSignatureInputHeader,
-  parseSignatureHeader,
-} from "./src/parse";
+import { parseSignatureInputHeader, parseSignatureHeader } from "../src/parse";
 
 describe("parse.ts", () => {
   describe("parseParametersHeader", () => {
@@ -42,26 +38,10 @@ describe("parse.ts", () => {
       });
     });
 
-    it("should throw an error on an invalid Signature-Input header", () => {
-      const header =
-        'sig1=("@method" "@path" "@authority" "digest");invalid=foo';
-      expect(() => parseSignatureInputHeader(header)).to.throw(
-        "Invalid Signature-Input header. Invalid value invalid=foo"
-      );
-    });
-
-    it("should throw an error on an invalid Accept-Signature header", () => {
-      const header =
-        'sig1=("@method" "@path" "@authority" "digest");invalid=foo';
-      expect(() => parseAcceptSignatureHeader(header)).to.throw(
-        "Invalid Accept-Signature header. Invalid value invalid=foo"
-      );
-    });
-
     it("should throw an error on an invalid components string", () => {
       const header = "sig1=(@method, @path, @authority, digest);invalid=foo";
       expect(() => parseSignatureInputHeader(header)).to.throw(
-        "Invalid Signature-Input header. Invalid value sig1=(@method, @path, @authority, digest)"
+        "Invalid Signature-Input header; failed to parse as RFC 8941 dictionary"
       );
     });
   });

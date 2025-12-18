@@ -42,8 +42,8 @@ HTTPIE_WBA_KEY="/path/to/jwk.json" http 'http+wba://example.com'
 
 ### Requirements
 
-* [Python 3.13](https://www.python.org/downloads/)
-* [uv](https://docs.astral.sh/uv/getting-started/installation/) - Python package manager
+- [Python 3.13](https://www.python.org/downloads/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) - Python package manager
 
 ### Build
 

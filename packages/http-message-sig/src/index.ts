@@ -1,5 +1,10 @@
 export * as base64 from "./base64";
-export { extractHeader } from "./build";
+export {
+  extractHeader,
+  resolveMessageKind,
+  isRawMessage,
+  componentHasParameters,
+} from "./build";
 export * from "./consts";
 export * from "./directory";
 export { parseAcceptSignatureHeader as parseAcceptSignature } from "./parse";
