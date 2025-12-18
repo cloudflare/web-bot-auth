@@ -1,10 +1,19 @@
-import { Component, HeaderValue, Parameter, Parameters } from "./types";
+import {
+  Component,
+  HeaderValue,
+  Parameter,
+  Parameters,
+  StructuredFieldComponent,
+} from "./types";
 import { decode as base64Decode } from "./base64";
 
 function parseEntry(
   headerName: string,
   entry: string
-): [string, string | number | true | (string | number)[]] {
+): [
+  string,
+  string | number | true | (string | number | StructuredFieldComponent)[],
+] {
   // this is wrong. it should only split the first `=`
   const equalsIndex = entry.indexOf("=");
   if (equalsIndex === -1) {
@@ -19,19 +28,34 @@ function parseEntry(
   if (value.match(/^".*"$/)) return [key.trim(), value.slice(1, -1)];
   if (value.match(/^\d+$/)) return [key.trim(), parseInt(value)];
 
+  // TODO: this is restricted to components array. Per RFC9421, there could be more
   if (value.match(/^\(.*\)$/)) {
-    const arr = value
-      .slice(1, -1)
-      .split(/\s+/)
-      .map((entry) => entry.match(/^"(.*)"$/)?.[1] ?? parseInt(entry));
+    const arr = value.slice(1, -1).split(/\s+/);
 
-    if (arr.some((value) => typeof value === "number" && isNaN(value))) {
+    const res = [];
+    for (const item of arr) {
+      const match = item.match(/^"(.*)"$/);
+      let toPush;
+      if (!match) {
+        toPush = parseInt(item);
+      } else if (match[1].includes('";key="')) {
+        toPush = {
+          key: match[1].split('";key="')[1],
+          header: match[1].split('";key="')[0],
+        };
+      } else {
+        toPush = match[1];
+      }
+      res.push(toPush);
+    }
+
+    if (res.some((value) => typeof value === "number" && isNaN(value))) {
       throw new Error(
         `Invalid ${headerName} header. Invalid value ${key}=${value}`
       );
     }
 
-    return [key.trim(), arr];
+    return [key.trim(), res];
   }
 
   throw new Error(
@@ -43,26 +67,19 @@ function parseParametersHeader(
   name: string,
   header: HeaderValue
 ): { key: string; components: Component[]; parameters: Parameters } {
-  const entries = header
-    .toString()
+  const rawHeader = header.toString();
+  const [rawComponents, rawParameters] = rawHeader.split(/(?<=\))/, 2);
+  const [key, components] = parseEntry(name, rawComponents.trim()) as [
+    string,
+    Component[],
+  ];
+
+  const entries = rawParameters
     // eslint-disable-next-line security/detect-unsafe-regex
     .match(/(?:[^;"]+|"[^"]+")+/g)
     ?.map((entry) => parseEntry(name, entry.trim()));
 
   if (!entries) throw new Error(`Invalid ${name} header. Invalid value`);
-
-  const componentsIndex = entries.findIndex(([, value]) =>
-    Array.isArray(value)
-  );
-  if (componentsIndex === -1)
-    throw new Error(`Invalid ${name} header. Missing components`);
-  const [[key, components]] = entries.splice(componentsIndex, 1) as [
-    [string, Component[]],
-  ];
-
-  if (entries.some(([, value]) => Array.isArray(value))) {
-    throw new Error(`Multiple signatures is not supported`);
-  }
 
   const parameters = Object.fromEntries(entries) as Record<
     Parameter,

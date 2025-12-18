@@ -20,7 +20,7 @@ export async function directoryResponseHeaders<T1 extends RequestLike>(
 
   // TODO: consider validating the directory structure, and confirm we have one signer per key
 
-  const components: string[] = RESPONSE_COMPONENTS;
+  const components = RESPONSE_COMPONENTS;
 
   const headers = new Map<string, SignatureHeaders>();
 
