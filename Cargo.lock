@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "http-signature-directory"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "rust-examples"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "indexmap",
  "time",
@@ -1463,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "signature-agent-card-and-registry"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1892,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "web-bot-auth"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "base64",
  "data-url",

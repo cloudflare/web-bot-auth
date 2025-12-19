@@ -19,9 +19,6 @@ worker = { version = "0.7", features = ['http'] }
 worker-macros = { version = "0.7", features = ['http'] }
 web-bot-auth = { workspace = true }
 
-# The following libraries are deliberately held back to these versions.
-# `ed25519-dalek` doesn't support latest `rand` in its latest stable version,
-# so we pin to the version of `rand` and `rand_chaca` the latest versions do support. 
 ed25519-dalek = { version = "2.2.0", features = ['rand_core'] }
 rand = { version = "0.8", default-features = false, features = ["getrandom"] }
 getrandom = { version = "0.2", features = ["js"] }

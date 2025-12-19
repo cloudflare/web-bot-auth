@@ -61,28 +61,37 @@ struct RawKeyData {
     x: String,
 }
 
-struct SignedDirectory {
-    signature: Vec<String>,
-    input: Vec<String>,
+struct SignedDirectory<'a> {
+    headers: &'a reqwest::header::HeaderMap,
     authority: String,
 }
 
-impl SignedMessage for SignedDirectory {
+impl SignedMessage for SignedDirectory<'_> {
     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
         match name {
             CoveredComponent::Derived(DerivedComponent::Authority { req: true }) => {
-                error!(
-                    "Expected `@authority`;req in signature input components, but did not find it"
+                debug!(
+                    "Resolved {} for derived component {:?}",
+                    self.authority, name
                 );
+
                 vec![self.authority.clone()]
             }
+            CoveredComponent::Derived(DerivedComponent::Authority { req: false }) => {
+                error!(
+                    "You are signing a plain `@authority` without the `req` component parameter. Fix by signing with `req` so that Signature-Input uses `\"@authority\";req` instead",
+                );
+                vec![]
+            }
             CoveredComponent::HTTP(HTTPField { name, .. }) => {
-                if name == "signature" {
-                    return self.signature.clone();
+                if let Some(header) = self.headers.get(name)
+                    && let Ok(value) = header.to_str()
+                {
+                    debug!("Found {} for header {}", value, name);
+                    return vec![String::from(value)];
                 }
-                if name == "signature-input" {
-                    return self.input.clone();
-                }
+
+                debug!("No value for header {:?} found", name);
                 vec![]
             }
             _ => vec![],
@@ -175,9 +184,10 @@ fn main() -> Result<(), String> {
         warnings.push("No Content Type header found".to_string());
     }
 
+    let headers = response.headers().clone();
+
     // Extract signature headers
-    let signature_headers: Vec<String> = response
-        .headers()
+    let signature_headers: Vec<String> = headers
         .get_all("Signature")
         .iter()
         .filter_map(|header| header.to_str().map(String::from).ok())
@@ -188,8 +198,7 @@ fn main() -> Result<(), String> {
         signature_headers
     );
 
-    let signature_inputs: Vec<String> = response
-        .headers()
+    let signature_inputs: Vec<String> = headers
         .get_all("Signature-Input")
         .iter()
         .filter_map(|header| header.to_str().map(String::from).ok())
@@ -284,8 +293,7 @@ fn main() -> Result<(), String> {
                     None => {
                         // Key imported successfully, now verify signature
                         let directory = SignedDirectory {
-                            signature: signature_headers.clone(),
-                            input: signature_inputs.clone(),
+                            headers: &headers,
                             authority: String::from(authority),
                         };
 
@@ -305,7 +313,9 @@ fn main() -> Result<(), String> {
                                     .and_then(|tag| tag.as_string())
                                     .is_some_and(|tag| tag.as_str() == thumbprint)
                                 && innerlist.items.iter().any(|item| {
-                                    *item == sfv::Item::new(sfv::StringRef::constant("@authority"))
+                                    item.bare_item
+                                        .as_string()
+                                        .is_some_and(|s| (*s).as_str() == "@authority")
                                 })
                         }) {
                             Ok(verifier) => {

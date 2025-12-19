@@ -239,6 +239,10 @@ pub trait SignedMessage {
     /// care should be taken to ensure HTTP field names in the message are checked in a
     /// case-insensitive way. Only `CoveredComponent::Http` should return a vector with
     /// more than one element.
+    ///
+    /// This function is also used to look up the values of `Signature-Input`, `Signature`
+    /// and (if used for web bot auth) `Signature-Agent` as standard HTTP headers.
+    /// Implementations should return those headers as well.
     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String>;
 }
 
@@ -316,6 +320,19 @@ impl MessageSigner {
             sfv::KeyRef::constant("tag").to_owned(),
             sfv::BareItem::String(
                 sfv::StringRef::from_str(&self.tag)
+                    .map_err(|_| {
+                        ImplementationError::ParsingError(
+                            "tag contains non-printable ASCII characters".into(),
+                        )
+                    })?
+                    .to_owned(),
+            ),
+        );
+
+        sfv_parameters.insert(
+            sfv::KeyRef::constant("alg").to_owned(),
+            sfv::BareItem::String(
+                sfv::StringRef::from_str(&format!("{}", algorithm))
                     .map_err(|_| {
                         ImplementationError::ParsingError(
                             "tag contains non-printable ASCII characters".into(),
