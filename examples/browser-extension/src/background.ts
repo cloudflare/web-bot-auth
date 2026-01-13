@@ -52,6 +52,15 @@ class Ed25519Signer {
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   function (details) {
+    const signatureAgentUrl = process.env.SIGNATURE_AGENT_URL;
+
+    if (signatureAgentUrl) {
+      details.requestHeaders?.push({
+        name: 'Signature-Agent',
+        value: `"${signatureAgentUrl}"`,
+      });
+    }
+
     const request = new Request(details.url, {
       method: details.method,
       // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
