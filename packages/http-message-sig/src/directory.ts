@@ -1,16 +1,26 @@
 import { Tag } from "./consts";
 import { signatureHeaders } from "./sign";
-import { Component, RequestLike, SignatureHeaders, Signer } from "./types";
+import {
+  Component,
+  ResponseRequestPair,
+  SignatureHeaders,
+  Signer,
+} from "./types";
 
-export const RESPONSE_COMPONENTS: Component[] = ["@authority"];
+export const RESPONSE_COMPONENTS: Component[] = [
+  {
+    name: "@authority",
+    parameters: new Map([["req", true]]),
+  },
+];
 
 export interface SignatureParams {
   created: Date;
   expires: Date;
 }
 
-export async function directoryResponseHeaders<T1 extends RequestLike>(
-  request: T1, // request is used to derive @authority for the response
+export async function directoryResponseHeaders(
+  message: ResponseRequestPair,
   signers: Signer[],
   params: SignatureParams
 ): Promise<SignatureHeaders> {
@@ -19,9 +29,6 @@ export async function directoryResponseHeaders<T1 extends RequestLike>(
   }
 
   // TODO: consider validating the directory structure, and confirm we have one signer per key
-
-  const components: string[] = RESPONSE_COMPONENTS;
-
   const headers = new Map<string, SignatureHeaders>();
 
   for (let i = 0; i < signers.length; i += 1) {
@@ -33,9 +40,9 @@ export async function directoryResponseHeaders<T1 extends RequestLike>(
 
     headers.set(
       signer.keyid,
-      await signatureHeaders(request, {
+      await signatureHeaders(message, {
         signer,
-        components,
+        components: RESPONSE_COMPONENTS,
         created: params.created,
         expires: params.expires,
         keyid: signer.keyid,

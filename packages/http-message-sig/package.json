@@ -38,11 +38,15 @@
   "contributors": [
     "Daniel Hensby",
     "LTO Network",
-    "Thibault Meunier"
+    "Thibault Meunier",
+    "Akshat Mahajan"
   ],
   "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/cloudflareresearch/web-bot-auth/issues"
   },
-  "homepage": "https://github.com/cloudflareresearch/web-bot-auth#readme"
+  "homepage": "https://github.com/cloudflareresearch/web-bot-auth#readme",
+  "dependencies": {
+    "structured-headers": "2.0.2"
+  }
 }

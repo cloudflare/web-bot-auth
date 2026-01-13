@@ -16,7 +16,7 @@ export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
 import { b64Tou8, u8ToB64 } from "./base64";
 export { helpers } from "./crypto";
 
-export const HTTP_MESSAGE_SIGNAGURE_TAG = "web-bot-auth";
+export const HTTP_MESSAGE_SIGNATURE_TAG = "web-bot-auth";
 export const SIGNATURE_AGENT_HEADER = "signature-agent";
 export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = [
   "@authority",
@@ -39,7 +39,7 @@ export interface VerificationParams {
   keyid: string;
   created: Date;
   expires: Date;
-  tag: typeof HTTP_MESSAGE_SIGNAGURE_TAG;
+  tag: typeof HTTP_MESSAGE_SIGNATURE_TAG;
   nonce?: string;
 }
 
@@ -58,7 +58,10 @@ export function validateNonce(nonce: string): boolean {
 }
 
 function getSigningOptions<
-  T extends httpsig.RequestLike | httpsig.ResponseLike,
+  T extends
+    | httpsig.RequestLike
+    | httpsig.ResponseLike
+    | httpsig.ResponseRequestPair,
 >(
   message: T,
   params: SignatureParams
@@ -75,8 +78,11 @@ function getSigningOptions<
       throw new Error("nonce is not a valid uint32");
     }
   }
-  const signatureAgent = httpsig.extractHeader(message, SIGNATURE_AGENT_HEADER);
-  let components: string[];
+  const signatureAgent = httpsig.extractHeader(
+    httpsig.resolveMessageKind(message),
+    SIGNATURE_AGENT_HEADER
+  );
+  let components: httpsig.Component[];
   if (!params.components) {
     // `extractHeader` returns "" instead of throwing or null when the header does not exist
     if (!signatureAgent) {
@@ -99,12 +105,15 @@ function getSigningOptions<
     expires: params.expires,
     nonce,
     key: params.key,
-    tag: HTTP_MESSAGE_SIGNAGURE_TAG,
+    tag: HTTP_MESSAGE_SIGNATURE_TAG,
   };
 }
 
 export function signatureHeaders<
-  T extends httpsig.RequestLike | httpsig.ResponseLike,
+  T extends
+    | httpsig.RequestLike
+    | httpsig.ResponseLike
+    | httpsig.ResponseRequestPair,
 >(
   message: T,
   signer: httpsig.Signer,
@@ -118,7 +127,10 @@ export function signatureHeaders<
 }
 
 export function signatureHeadersSync<
-  T extends httpsig.RequestLike | httpsig.ResponseLike,
+  T extends
+    | httpsig.RequestLike
+    | httpsig.ResponseLike
+    | httpsig.ResponseRequestPair,
 >(
   message: T,
   signer: httpsig.SignerSync,
@@ -138,7 +150,10 @@ export type Verify<T> = (
 ) => T | Promise<T>;
 
 export function verify<T>(
-  message: httpsig.RequestLike | httpsig.ResponseLike,
+  message:
+    | httpsig.RequestLike
+    | httpsig.ResponseLike
+    | httpsig.ResponseRequestPair,
   verifier: Verify<T>
 ): Promise<T> {
   const v = (
@@ -146,8 +161,8 @@ export function verify<T>(
     signature: Uint8Array,
     params: httpsig.Parameters
   ): T | Promise<T> => {
-    if (params.tag !== HTTP_MESSAGE_SIGNAGURE_TAG) {
-      throw new Error(`tag must be '${HTTP_MESSAGE_SIGNAGURE_TAG}'`);
+    if (params.tag !== HTTP_MESSAGE_SIGNATURE_TAG) {
+      throw new Error(`tag must be '${HTTP_MESSAGE_SIGNATURE_TAG}'`);
     }
     if (params.created.getTime() > Date.now()) {
       throw new Error("created in the future");

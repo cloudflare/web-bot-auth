@@ -168,15 +168,60 @@ describe("sign", () => {
         },
       };
 
-      const signedRequest = await signatureHeaders(sampleResponse, {
+      const signedResponse = await signatureHeaders(sampleResponse, {
         signer,
         components,
         created,
       });
-      expect(signedRequest).to.deep.equal({
+      expect(signedResponse).to.deep.equal({
         Signature: `sig1=:${expectedHashBase64}:`,
         "Signature-Input":
           'sig1=("@status" "digest" "x-total");created=1681004344;keyid="test-key";alg="hmac-sha256"',
+      });
+    });
+
+    it("should honor the `req` parameter", async () => {
+      const components = [
+        "@status",
+        "digest",
+        "x-total",
+        {
+          name: "@authority",
+          parameters: new Map([["req", true]]),
+        },
+      ];
+      const expectedData = [
+        '"@status": 200',
+        '"digest": SHA-256=abcdef',
+        '"x-total": 200',
+        '"@authority";req: example.com',
+        '"@signature-params": ("@status" "digest" "x-total" "@authority";req);created=1681004344;keyid="test-key";alg="hmac-sha256"',
+      ].join("\n");
+
+      const signer: Signer = {
+        keyid: "test-key",
+        alg: "hmac-sha256",
+        async sign(data) {
+          expect(data).to.equal(expectedData);
+          return expectedHash;
+        },
+      };
+
+      const signedResponse = await signatureHeaders(
+        {
+          response: sampleResponse,
+          request: sampleRequest,
+        },
+        {
+          signer,
+          components,
+          created,
+        }
+      );
+      expect(signedResponse).to.deep.equal({
+        Signature: `sig1=:${expectedHashBase64}:`,
+        "Signature-Input":
+          'sig1=("@status" "digest" "x-total" "@authority";req);created=1681004344;keyid="test-key";alg="hmac-sha256"',
       });
     });
   });

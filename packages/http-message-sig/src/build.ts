@@ -1,4 +1,12 @@
-import { Component, Parameters, RequestLike, ResponseLike } from "./types";
+import {
+  Component,
+  ComponentWithParameters,
+  Parameters,
+  RequestLike,
+  ResponseLike,
+  ResponseRequestPair,
+} from "./types";
+import { serializeItem } from "structured-headers";
 
 export function extractHeader(
   { headers }: RequestLike | ResponseLike,
@@ -67,20 +75,66 @@ export function extractComponent(
         throw new Error(`${component} is only valid for responses`);
       return (message as ResponseLike).status.toString();
     case "@query-params":
-    case "@request-response":
       throw new Error(`${component} is not implemented yet`);
     default:
       throw new Error(`Unknown specialty component ${component}`);
   }
 }
 
+export function serializeComponent(cwp: Component): string {
+  if (componentHasParameters(cwp)) {
+    return serializeItem(`${cwp.name.toLowerCase()}`, cwp.parameters);
+  }
+
+  return `"${cwp.toLowerCase()}"`;
+}
+
+export function isRawMessage(
+  message: RequestLike | ResponseLike | ResponseRequestPair
+): message is RequestLike | ResponseLike {
+  return (
+    (message as ResponseRequestPair).response === undefined &&
+    (message as ResponseRequestPair).request === undefined
+  );
+}
+
+export function componentHasParameters(
+  component: Component
+): component is ComponentWithParameters {
+  return (component as ComponentWithParameters).parameters !== undefined;
+}
+
+export function resolveMessageKind(
+  message: RequestLike | ResponseLike | ResponseRequestPair,
+  cwp?: Component
+): RequestLike | ResponseLike {
+  let requiresReq = false;
+  if (cwp !== undefined && componentHasParameters(cwp)) {
+    requiresReq = cwp.parameters.has("req");
+  }
+
+  if (isRawMessage(message)) {
+    if (requiresReq) {
+      throw new Error(
+        "`req` component parameter can only be used with ResponseRequestPair message types"
+      );
+    }
+
+    return message;
+  }
+
+  if (requiresReq) {
+    return message.request;
+  }
+
+  return message.response;
+}
+
 export function buildSignatureInputString(
   componentNames: Component[],
   parameters: Parameters
 ): string {
-  const components = componentNames
-    .map((name) => `"${name.toLowerCase()}"`)
-    .join(" ");
+  const components = componentNames.map(serializeComponent).join(" ");
   const values = Object.entries(parameters)
     .map(([parameter, value]) => {
       if (typeof value === "number") return `;${parameter}=${value}`;
@@ -94,15 +148,19 @@ export function buildSignatureInputString(
 }
 
 export function buildSignedData(
-  request: RequestLike | ResponseLike,
+  message: RequestLike | ResponseLike | ResponseRequestPair,
   components: Component[],
   signatureInputString: string
 ): string {
   const parts = components.map((component) => {
-    const value = component.startsWith("@")
-      ? extractComponent(request, component)
-      : extractHeader(request, component);
-    return `"${component.toLowerCase()}": ${value}`;
+    const messageToUse = resolveMessageKind(message, component);
+    const componentName = componentHasParameters(component)
+      ? component.name
+      : component;
+    const value = componentName.startsWith("@")
+      ? extractComponent(messageToUse, componentName)
+      : extractHeader(messageToUse, componentName);
+    return `${serializeComponent(component)}: ${value}`;
   });
   parts.push(`"@signature-params": ${signatureInputString}`);
   return parts.join("\n");

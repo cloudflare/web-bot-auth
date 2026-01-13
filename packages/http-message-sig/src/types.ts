@@ -47,6 +47,12 @@ export interface ResponseLike {
   headers: Headers;
 }
 
+// Allows usage of the req parameter.
+export interface ResponseRequestPair {
+  response: ResponseLike;
+  request: RequestLike;
+}
+
 // see https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-message-signatures-06#section-2.3.1
 export type Parameter =
   | "created"
@@ -66,8 +72,15 @@ export type Component =
   | "@query"
   | "@query-param"
   | "@status"
-  | "@request-response"
-  | string;
+  | string
+  | ComponentWithParameters;
+
+export interface ComponentWithParameters {
+  name: string;
+  parameters: ComponentParameters;
+}
+
+export type ComponentParameters = Map<string, string | boolean>;
 
 interface StandardParameters {
   expires?: Date;
@@ -90,6 +103,7 @@ export type SignOptions = StandardParameters & {
   signer: Signer;
   [name: Parameter]:
     | Component[]
+    | ComponentWithParameters[]
     | Signer
     | string
     | number
@@ -105,6 +119,7 @@ export type SignSyncOptions = StandardParameters & {
   signer: SignerSync;
   [name: Parameter]:
     | Component[]
+    | ComponentWithParameters[]
     | SignerSync
     | string
     | number
