@@ -34,11 +34,15 @@ export function getUrl(
     const host = extractHeader(message, "host");
     const protocol = message.protocol || "http";
     const baseUrl = `${protocol}://${host}`;
-    return new URL(message.url, baseUrl);
+    const url = new URL(message.url, baseUrl);
+    url.pathname = decodeURIComponent(url.pathname);
+    return new URL(url.href);
   }
   if (!(message as RequestLike).url)
     throw new Error(`${component} is only valid for requests`);
-  return new URL((message as RequestLike).url);
+  const url = new URL((message as RequestLike).url);
+  url.pathname = decodeURIComponent(url.pathname);
+  return new URL(url.href);
 }
 
 // see https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-message-signatures-06#section-2.3
