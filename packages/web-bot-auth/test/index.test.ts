@@ -1,6 +1,7 @@
 import { vi, describe, it, expect } from "vitest";
 import {
   generateNonce,
+  REQUEST_COMPONENTS,
   signatureHeaders,
   validateNonce,
   NONCE_LENGTH_IN_BYTES,
@@ -43,6 +44,62 @@ describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
       await verify(signedRequest, await verifierFromJWK(v.key))
     ).toBeUndefined();
     vi.useRealTimers();
+  });
+});
+
+describe("custom components", () => {
+  const ed25519Key =
+    vectors.find((v) => v.key.kty === "OKP")?.key ?? vectors[0].key;
+
+  it("should sign with custom components including additional headers", async () => {
+    const signer = await signerFromJWK(ed25519Key);
+
+    const headers = new Headers();
+    headers.append(SIGNATURE_AGENT_HEADER, "https://example.bot.com");
+    headers.append("accept", "text/html");
+    const request = new Request("https://example.com", { headers });
+
+    const signedHeaders = await signatureHeaders(request, signer, {
+      created: new Date(1735689600000),
+      expires: new Date(1735693200000),
+      components: [...REQUEST_COMPONENTS, "accept"],
+    });
+
+    // Verify that the Signature-Input includes the custom component
+    expect(signedHeaders["Signature-Input"]).toContain('"accept"');
+    expect(signedHeaders["Signature-Input"]).toContain('"@authority"');
+    expect(signedHeaders["Signature-Input"]).toContain('"signature-agent"');
+  });
+
+  it("should reject custom components missing signature-agent when header is present", async () => {
+    const signer = await signerFromJWK(ed25519Key);
+
+    const headers = new Headers();
+    headers.append(SIGNATURE_AGENT_HEADER, "https://example.bot.com");
+    const request = new Request("https://example.com", { headers });
+
+    expect(() =>
+      signatureHeaders(request, signer, {
+        created: new Date(1735689600000),
+        expires: new Date(1735693200000),
+        components: ["@authority"], // missing signature-agent
+      })
+    ).toThrow(`${SIGNATURE_AGENT_HEADER} is required in params.component`);
+  });
+
+  it("should allow custom components without signature-agent when header is absent", async () => {
+    const signer = await signerFromJWK(ed25519Key);
+
+    const request = new Request("https://example.com");
+
+    const signedHeaders = await signatureHeaders(request, signer, {
+      created: new Date(1735689600000),
+      expires: new Date(1735693200000),
+      components: ["@authority"],
+    });
+
+    expect(signedHeaders["Signature-Input"]).toContain('"@authority"');
+    expect(signedHeaders["Signature-Input"]).not.toContain('"signature-agent"');
   });
 });
 
