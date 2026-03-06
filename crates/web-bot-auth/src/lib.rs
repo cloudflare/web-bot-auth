@@ -397,7 +397,7 @@ mod tests {
                 &mut mytest,
                 time::Duration::seconds(10),
                 Algorithm::Ed25519,
-                &private_key.to_vec(),
+                &private_key,
             )
             .unwrap();
 
