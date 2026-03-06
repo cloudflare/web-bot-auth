@@ -91,9 +91,11 @@ function getSigningOptions<
       components = REQUEST_COMPONENTS;
     }
   } else {
-    if (signatureAgent && components.indexOf("SIGNATURE_AGENT_HEADER") === -1) {
+    if (signatureAgent && !params.components.some(c => 
+    typeof c === 'string' ? c === SIGNATURE_AGENT_HEADER : c.name === SIGNATURE_AGENT_HEADER
+  )) {
       throw new Error(
-        `${SIGNATURE_AGENT_HEADER} is required in params.component when included as a header param`
+        `${SIGNATURE_AGENT_HEADER} is required in params.components when included as a header param`
       );
     }
     components = params.components;
