@@ -261,6 +261,60 @@ pub trait UnsignedMessage {
     fn register_header_contents(&mut self, signature_input: String, signature_header: String);
 }
 
+/// Trait that provides interface to generate signatures given a message and an algorithm.
+/// This is implemented for `Vec<u8>` and friends as a batteries-included way to generate
+/// signatures from raw key material, but can be implemented for any type of client-controlled
+/// signer as well (yubikey, cloud kms, web3 wallet, etc).
+pub trait GenerateSignature {
+    /// Generate signature given the algorithm and the message to sign.
+    fn generate_signature(
+        &self,
+        algorithm: Algorithm,
+        msg: &[u8],
+    ) -> Result<Vec<u8>, ImplementationError>;
+}
+
+impl GenerateSignature for [u8] {
+    fn generate_signature(
+        &self,
+        algorithm: Algorithm,
+        msg: &[u8],
+    ) -> Result<Vec<u8>, ImplementationError> {
+        let signature = match algorithm {
+            Algorithm::Ed25519 => {
+                use ed25519_dalek::{Signer, SigningKey};
+                let signing_key_dalek = SigningKey::try_from(self)
+                    .map_err(|_| ImplementationError::InvalidKeyLength)?;
+
+                signing_key_dalek.sign(msg).to_vec()
+            }
+            other => return Err(ImplementationError::UnsupportedAlgorithm(other)),
+        };
+
+        Ok(signature)
+    }
+}
+
+impl GenerateSignature for Vec<u8> {
+    fn generate_signature(
+        &self,
+        algorithm: Algorithm,
+        msg: &[u8],
+    ) -> Result<Vec<u8>, ImplementationError> {
+        self.as_slice().generate_signature(algorithm, msg)
+    }
+}
+
+impl GenerateSignature for [u8; 32] {
+    fn generate_signature(
+        &self,
+        algorithm: Algorithm,
+        msg: &[u8],
+    ) -> Result<Vec<u8>, ImplementationError> {
+        self.as_slice().generate_signature(algorithm, msg)
+    }
+}
+
 /// A struct that implements signing. The struct fields here are serialized into the `Signature-Input`
 /// header.
 pub struct MessageSigner {
@@ -273,7 +327,7 @@ pub struct MessageSigner {
 }
 
 impl MessageSigner {
-    /// Sign the provided method with `signing_key`, setting an expiration value of
+    /// Sign the provided method with `signer`, setting an expiration value of
     /// length `expires` from now (the time of signing).
     ///
     /// # Errors
@@ -285,7 +339,7 @@ impl MessageSigner {
         message: &mut impl UnsignedMessage,
         expires: Duration,
         algorithm: Algorithm,
-        signing_key: &Vec<u8>,
+        signer: &(impl GenerateSignature + ?Sized),
     ) -> Result<(), ImplementationError> {
         let components_to_cover = message.fetch_components_to_cover();
         let mut sfv_parameters = sfv::Parameters::new();
@@ -361,22 +415,13 @@ impl MessageSigner {
         }
         .into_ascii()?;
 
-        let signature = match algorithm {
-            Algorithm::Ed25519 => {
-                use ed25519_dalek::{Signer, SigningKey};
-                let signing_key_dalek = SigningKey::try_from(signing_key.as_slice())
-                    .map_err(|_| ImplementationError::InvalidKeyLength)?;
-
-                sfv::Item {
-                    bare_item: sfv::BareItem::ByteSequence(
-                        signing_key_dalek.sign(signature_base.as_bytes()).to_vec(),
-                    ),
-                    params: sfv::Parameters::new(),
-                }
-                .serialize_value()
-            }
-            other => return Err(ImplementationError::UnsupportedAlgorithm(other)),
-        };
+        let signature = sfv::Item {
+            bare_item: sfv::BareItem::ByteSequence(
+                signer.generate_signature(algorithm, signature_base.as_bytes())?,
+            ),
+            params: sfv::Parameters::new(),
+        }
+        .serialize_value();
 
         message.register_header_contents(signature_params_content, signature);
 
@@ -670,7 +715,7 @@ mod tests {
                     &mut test,
                     Duration::seconds(10),
                     Algorithm::Ed25519,
-                    &private_key.to_vec()
+                    &private_key
                 )
                 .is_ok()
         );

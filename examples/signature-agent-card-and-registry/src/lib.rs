@@ -169,7 +169,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
                     &mut generator,
                     Duration::seconds(10),
                     Algorithm::Ed25519,
-                    &(signing_key.as_bytes().to_vec()),
+                    signing_key.as_bytes(),
                 )
                 .unwrap();
             Ok(response)
