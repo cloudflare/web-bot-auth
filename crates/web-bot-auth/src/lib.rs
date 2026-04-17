@@ -81,6 +81,47 @@ pub enum ImplementationError {
     WebBotAuth(WebBotAuthError),
 }
 
+impl core::fmt::Display for ImplementationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImplementationError::ImpossibleSfvError(e) => {
+                write!(f, "impossible structured field value error: {e}")
+            }
+            ImplementationError::ParsingError(s) => write!(f, "parsing error: {s}"),
+            ImplementationError::LookupError(component) => {
+                write!(f, "lookup error: component not found: {component:?}")
+            }
+            ImplementationError::UnsupportedAlgorithm(alg) => {
+                write!(f, "unsupported algorithm: {alg:?}")
+            }
+            ImplementationError::NoSuchKey => write!(f, "no such key"),
+            ImplementationError::InvalidKeyLength => write!(f, "invalid key length"),
+            ImplementationError::InvalidSignatureLength => write!(f, "invalid signature length"),
+            ImplementationError::FailedToVerify(e) => {
+                write!(f, "signature verification failed: {e}")
+            }
+            ImplementationError::NonAsciiContentFound => {
+                write!(f, "non-ASCII content found in signature base")
+            }
+            ImplementationError::SignatureParamsSerialization => {
+                write!(f, "failed to serialize signature params")
+            }
+            ImplementationError::WebBotAuth(e) => write!(f, "web bot auth error: {e}"),
+        }
+    }
+}
+
+impl core::error::Error for ImplementationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ImplementationError::ImpossibleSfvError(e) => Some(e),
+            ImplementationError::FailedToVerify(e) => Some(e),
+            ImplementationError::WebBotAuth(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 /// Errors thrown when verifying a Web Bot Auth-signed message specifically.
 #[derive(Debug)]
 pub enum WebBotAuthError {
@@ -88,6 +129,16 @@ pub enum WebBotAuthError {
     /// and `creates` method.
     SignatureIsExpired,
 }
+
+impl core::fmt::Display for WebBotAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WebBotAuthError::SignatureIsExpired => write!(f, "signature is expired"),
+        }
+    }
+}
+
+impl core::error::Error for WebBotAuthError {}
 
 /// A verifier for Web Bot Auth messages specifically.
 #[derive(Clone, Debug)]
