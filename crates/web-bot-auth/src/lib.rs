@@ -310,6 +310,8 @@ impl WebBotAuthVerifier {
 #[cfg(test)]
 mod tests {
 
+    use std::time::Duration;
+
     use components::DerivedComponent;
     use indexmap::IndexMap;
 
@@ -363,8 +365,9 @@ mod tests {
         assert!(advisory.is_expired.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
         let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.whole_nanoseconds() > 0);
-        assert!(timing.verification.whole_nanoseconds() > 0);
+
+        assert!(timing.generation.as_nanos() > 0);
+        assert!(timing.verification.as_nanos() > 0);
     }
 
     #[test]
@@ -446,7 +449,7 @@ mod tests {
         signer
             .generate_signature_headers_content(
                 &mut mytest,
-                time::Duration::seconds(10),
+                Duration::from_secs(10),
                 Algorithm::Ed25519,
                 &private_key,
             )
@@ -463,8 +466,8 @@ mod tests {
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
 
         let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.whole_nanoseconds() > 0);
-        assert!(timing.verification.whole_nanoseconds() > 0);
+        assert!(timing.generation.as_nanos() > 0);
+        assert!(timing.verification.as_nanos() > 0);
     }
 
     #[test]

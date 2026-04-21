@@ -6,7 +6,8 @@ use regex::bytes::Regex;
 use sfv::SerializeValue;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
-use time::{Duration, UtcDateTime};
+use std::time::Duration;
+use time::UtcDateTime;
 static OBSOLETE_LINE_FOLDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s*\r\n\s+").unwrap());
 
@@ -575,7 +576,8 @@ impl MessageVerifier {
         .ok_or(ImplementationError::NoSuchKey)?;
         let generation = UtcDateTime::now();
         let (base_representation, _) = self.parsed.base.into_ascii()?;
-        let generation = UtcDateTime::now() - generation;
+        let generation = (UtcDateTime::now() - generation).unsigned_abs();
+
         match &keying_material.0 {
             Algorithm::Ed25519 => {
                 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -591,7 +593,7 @@ impl MessageVerifier {
                     .map_err(ImplementationError::FailedToVerify)
                     .map(|()| SignatureTiming {
                         generation,
-                        verification: UtcDateTime::now() - verification,
+                        verification: (UtcDateTime::now() - verification).unsigned_abs(),
                     })
             }
             other => Err(ImplementationError::UnsupportedAlgorithm(other.clone())),
@@ -659,8 +661,8 @@ mod tests {
         );
         let verifier = MessageVerifier::parse(&test, |(_, _)| true).unwrap();
         let timing = verifier.verify(&keyring, None).unwrap();
-        assert!(timing.generation.whole_nanoseconds() > 0);
-        assert!(timing.verification.whole_nanoseconds() > 0);
+        assert!(timing.generation.as_nanos() > 0);
+        assert!(timing.verification.as_nanos() > 0);
     }
 
     #[test]
@@ -713,7 +715,7 @@ mod tests {
             signer
                 .generate_signature_headers_content(
                     &mut test,
-                    Duration::seconds(10),
+                    Duration::from_secs(10),
                     Algorithm::Ed25519,
                     &private_key
                 )

@@ -4,7 +4,7 @@ use indexmap::map::IndexMap;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use time::Duration;
+use std::time::Duration;
 use web_bot_auth::{
     components::{CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParametersSet},
     keyring::{Algorithm, Thumbprintable},
@@ -167,7 +167,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             signer
                 .generate_signature_headers_content(
                     &mut generator,
-                    Duration::seconds(10),
+                    Duration::from_secs(10),
                     Algorithm::Ed25519,
                     signing_key.as_bytes(),
                 )
