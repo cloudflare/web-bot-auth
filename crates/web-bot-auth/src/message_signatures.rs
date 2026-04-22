@@ -1,13 +1,16 @@
-use super::ImplementationError;
-use crate::components::{self, CoveredComponent, HTTPField};
-use crate::keyring::{Algorithm, KeyRing};
-use indexmap::IndexMap;
-use regex::bytes::Regex;
-use sfv::SerializeValue;
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 use std::time::Duration;
+
+use indexmap::IndexMap;
+use regex::bytes::Regex;
+use sfv::SerializeValue;
 use time::UtcDateTime;
+
+use super::ImplementationError;
+use crate::components::{self, CoveredComponent, HTTPField};
+use crate::keyring::{Algorithm, KeyRing};
+
 static OBSOLETE_LINE_FOLDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s*\r\n\s+").unwrap());
 
@@ -603,11 +606,10 @@ impl MessageVerifier {
 
 #[cfg(test)]
 mod tests {
-
-    use crate::components::{DerivedComponent, HTTPField, HTTPFieldParametersSet};
     use indexmap::IndexMap;
 
     use super::*;
+    use crate::components::{DerivedComponent, HTTPField, HTTPFieldParametersSet};
 
     struct StandardTestVector {}
 
