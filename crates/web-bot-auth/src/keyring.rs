@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::{VerifyingKey, ed25519};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 
 /// Errors that may be thrown by this module
 /// when importing a JWK key.

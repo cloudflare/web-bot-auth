@@ -25,13 +25,11 @@ pub mod keyring;
 /// Implementation of HTTP Message Signatures
 pub mod message_signatures;
 
-use components::CoveredComponent;
-use message_signatures::{MessageVerifier, ParsedLabel, SignatureTiming, SignedMessage};
-
 use data_url::DataUrl;
-use keyring::{Algorithm, JSONWebKeySet, KeyRing};
 
-use crate::components::{HTTPField, HTTPFieldParameters};
+use components::{CoveredComponent, HTTPField, HTTPFieldParameters};
+use keyring::{Algorithm, JSONWebKeySet, KeyRing};
+use message_signatures::{MessageVerifier, ParsedLabel, SignatureTiming, SignedMessage};
 
 /// Errors that may be thrown by this module.
 #[derive(Debug)]
@@ -309,13 +307,12 @@ impl WebBotAuthVerifier {
 
 #[cfg(test)]
 mod tests {
-
     use std::time::Duration;
 
-    use components::DerivedComponent;
     use indexmap::IndexMap;
 
     use super::*;
+    use components::DerivedComponent;
 
     struct StandardTestVector {}
 
