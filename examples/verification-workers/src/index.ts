@@ -87,6 +87,103 @@ async function fetchDirectory(signatureAgent: string): Promise<Directory> {
 	return response.json();
 }
 
+function validateDirectory(directory: unknown): string[] {
+	const errors: string[] = [];
+
+	if (directory === null || typeof directory !== "object") {
+		return ["Directory must be a JSON object"];
+	}
+
+	const value = directory as Partial<Directory>;
+
+	if (!Array.isArray(value.keys)) {
+		errors.push("Directory must include a keys array");
+	} else if (value.keys.length === 0) {
+		errors.push("Directory keys array must not be empty");
+	} else {
+		for (const [index, key] of value.keys.entries()) {
+			if (key === null || typeof key !== "object") {
+				errors.push(`keys[${index}] must be a JSON object`);
+				continue;
+			}
+			if (typeof key.kty !== "string") {
+				errors.push(`keys[${index}].kty must be a string`);
+			}
+		}
+	}
+
+	if (typeof value.purpose !== "string" || value.purpose.length === 0) {
+		errors.push("Directory must include a non-empty purpose string");
+	}
+
+	return errors;
+}
+
+async function validateDirectoryURL(request: Request): Promise<Response> {
+	const url = new URL(request.url);
+	const directoryURL = url.searchParams.get("url");
+
+	if (directoryURL === null || directoryURL.length === 0) {
+		return Response.json(
+			{ ok: false, errors: ["Missing url query parameter"] },
+			{ status: 400 }
+		);
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(directoryURL);
+	} catch (_e) {
+		return Response.json(
+			{ ok: false, errors: ["URL must be valid"] },
+			{ status: 400 }
+		);
+	}
+
+	if (parsed.protocol !== "https:") {
+		return Response.json(
+			{ ok: false, errors: ['Directory URL must use "https:"'] },
+			{ status: 400 }
+		);
+	}
+
+	if (parsed.pathname !== HTTP_MESSAGE_SIGNATURES_DIRECTORY) {
+		return Response.json(
+			{
+				ok: false,
+				errors: [
+					`Directory URL path must be ${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`,
+				],
+			},
+			{ status: 400 }
+		);
+	}
+
+	const response = await fetch(parsed);
+	if (!response.ok) {
+		return Response.json(
+			{
+				ok: false,
+				errors: [`Directory returned HTTP ${response.status}`],
+			},
+			{ status: 502 }
+		);
+	}
+
+	let directory: unknown;
+	try {
+		directory = await response.json();
+	} catch (_e) {
+		return Response.json(
+			{ ok: false, errors: ["Directory response must be valid JSON"] },
+			{ status: 502 }
+		);
+	}
+
+	const errors = validateDirectory(directory);
+	return Response.json({ ok: errors.length === 0, errors });
+}
+
 async function getSigner(): Promise<Signer> {
 	return Ed25519Signer.fromJWK(jwk);
 }
@@ -178,6 +275,10 @@ export default {
 		if (url.pathname.startsWith("/v0/api/verify")) {
 			const status = await verifySignature(env, request);
 			return new Response(status);
+		}
+
+		if (url.pathname.startsWith("/v0/api/validate-directory")) {
+			return validateDirectoryURL(request);
 		}
 
 		if (url.pathname.startsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {

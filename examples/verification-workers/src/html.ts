@@ -189,6 +189,20 @@ button:focus {
 button:active {
   box-shadow: inset 0 1px 1px 1px rgba(0,0,0,.4);
 }
+input[type="url"] {
+  border: 1px solid #999;
+  border-radius: 6px;
+  box-sizing: border-box;
+  display: block;
+  font: inherit;
+  margin: 0.5rem 0;
+  max-width: 720px;
+  padding: 8px 10px;
+  width: 100%;
+}
+.validation-result {
+  margin-top: 0.75rem;
+}
 
 .question-list {
   margin-bottom: 2rem;
@@ -273,6 +287,17 @@ footer {
       </ul>
     </p>
 
+    <h2>Validate your key directory</h2>
+    <p>
+      Paste the full HTTPS URL for a <code>/.well-known/http-message-signatures-directory</code> endpoint to check whether it returns a usable directory.
+    </p>
+    <form id="directory-validator">
+      <label for="directory-url">Directory URL</label>
+      <input id="directory-url" name="url" type="url" placeholder="https://example.com/.well-known/http-message-signatures-directory" required />
+      <button type="submit">Validate directory</button>
+      <p id="directory-validation-result" class="validation-result" aria-live="polite"></p>
+    </form>
+
     <h2>It's hard to debug. How can this website help?</h2>
     <p>
     This website expose an endpoint dropping incoming request headers on <a>/debug</a>
@@ -289,6 +314,26 @@ footer {
     To contribute to the standard discussion, the current draft is hosted on <a href="https://github.com/thibmeu/http-message-signatures-directory">thibmeu/http-message-signatures-directory</a>, and is being discussed on <a href="https://mailarchive.ietf.org/arch/browse/web-bot-auth/">web-bot-auth</a> IETF mailing list.
     </p>
   </section>
+  <script>
+    const form = document.getElementById("directory-validator");
+    const result = document.getElementById("directory-validation-result");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      result.textContent = "Checking directory...";
+
+      try {
+        const response = await fetch("/v0/api/validate-directory?url=" + encodeURIComponent(data.get("url")));
+        const body = await response.json();
+        result.textContent = body.ok
+          ? "Directory looks valid."
+          : "Directory check failed: " + body.errors.join("; ");
+      } catch (_e) {
+        result.textContent = "Directory check failed.";
+      }
+    });
+  </script>
 </body>
 </html>`;
 

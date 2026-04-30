@@ -49,3 +49,51 @@ describe("/debug endpoint", () => {
 		expect(await response.text()).toMatch(headersString);
 	});
 });
+
+describe("/v0/api/validate-directory endpoint", () => {
+	it("requires a url query parameter", async () => {
+		const response = await SELF.fetch(
+			new Request(`${sampleURL}/v0/api/validate-directory`)
+		);
+
+		expect(response.status).toEqual(400);
+		expect(await response.json()).toEqual({
+			ok: false,
+			errors: ["Missing url query parameter"],
+		});
+	});
+
+	it("requires an https well-known directory URL", async () => {
+		const response = await SELF.fetch(
+			new Request(
+				`${sampleURL}/v0/api/validate-directory?url=${encodeURIComponent(
+					"http://example.com/"
+				)}`
+			)
+		);
+
+		expect(response.status).toEqual(400);
+		expect(await response.json()).toEqual({
+			ok: false,
+			errors: ['Directory URL must use "https:"'],
+		});
+	});
+
+	it("requires the directory well-known path", async () => {
+		const response = await SELF.fetch(
+			new Request(
+				`${sampleURL}/v0/api/validate-directory?url=${encodeURIComponent(
+					"https://example.com/"
+				)}`
+			)
+		);
+
+		expect(response.status).toEqual(400);
+		expect(await response.json()).toEqual({
+			ok: false,
+			errors: [
+				"Directory URL path must be /.well-known/http-message-signatures-directory",
+			],
+		});
+	});
+});
