@@ -30,6 +30,7 @@ interface TestVector {
 async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
   const now = new Date("2025-01-01T00:00:00Z");
   const created = now;
+  // Use a far-future expiry so test vectors never expire during conformance testing.
   const expires = new Date(now.getTime() + 3_153_600_000_000);
   const signer = await signerFromJWK(jwk);
 
