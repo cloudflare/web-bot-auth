@@ -77,7 +77,6 @@ export type Component =
   | "@query"
   | "@query-param"
   | "@status"
-  | "@request-response"
   | string
   | ComponentWithParameters
   | StructuredFieldComponent;

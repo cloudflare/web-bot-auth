@@ -13,9 +13,9 @@ import { signerFromJWK, verifierFromJWK } from "../src/crypto";
 import { b64Tou8, u8ToB64 } from "../src/base64";
 
 import vectors1 from "./test_data/web_bot_auth_architecture_v1.json";
-import vector2 from "./test_data/web_bot_auth_architecture_v2.json";
+import vectors2 from "./test_data/web_bot_auth_architecture_v2.json";
 
-const vectors = [...vectors1, ...vector2];
+const vectors = [...vectors1, ...vectors2];
 type Vectors = (typeof vectors)[number];
 
 describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {

@@ -4,7 +4,6 @@ import {
   HeaderValue,
   Parameter,
   Parameters,
-  StructuredFieldComponent,
 } from "./types";
 import { decode as base64Decode } from "./base64";
 import { parseDictionary, isInnerList } from "structured-headers";
@@ -37,6 +36,7 @@ function parseSfvDictionary(
     throw new Error(`Invalid ${name} header. Missing components`);
   }
 
+  // innerlist is [Item[], Map] where each Item is [string, Map<string, string | boolean>]
   const [cwp, params] = innerlist;
 
   const parameters: Parameters = Object.fromEntries(params) as Record<
@@ -74,7 +74,7 @@ function parseSfvDictionary(
       return {
         header: component,
         key: componentParams.get("key") as string,
-      } as StructuredFieldComponent;
+      };
     }
 
     return {

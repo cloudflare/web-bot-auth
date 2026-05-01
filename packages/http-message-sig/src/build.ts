@@ -9,6 +9,16 @@ import {
 } from "./types";
 import { serializeItem } from "structured-headers";
 
+/**
+ * Extract a value from a dictionary-style header by key.
+ *
+ * WARNING: This is a best-effort parser that does NOT conform to RFC 8941.
+ * It splits on commas and equals signs, which will misparse values containing
+ * commas in quoted strings, inner lists, or base64 sequences. It also does
+ * not unescape escaped quotes (\\") or validate key syntax.
+ * Use only for headers with simple dictionary values where keys map to
+ * quoted strings or bare tokens without commas.
+ */
 export function extractStructuredFieldDictionaryHeader(
   r: RequestLike | ResponseLike,
   component: StructuredFieldComponent
@@ -189,10 +199,7 @@ export function buildSignedData(
         ? extractComponent(messageToUse, component)
         : extractHeader(messageToUse, component);
     } else if (isStructuredFieldComponent(component)) {
-      value = extractStructuredFieldDictionaryHeader(
-        messageToUse,
-        component
-      );
+      value = extractStructuredFieldDictionaryHeader(messageToUse, component);
     } else {
       const componentName = component.name;
       value = componentName.startsWith("@")
