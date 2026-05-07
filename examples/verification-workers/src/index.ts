@@ -33,13 +33,6 @@ const DIRECTORY_RESPONSE_MAX_BYTES = 64_000;
 const TURNSTILE_VERIFY_URL =
 	"https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-interface ValidationResult {
-	ok: boolean;
-	errors: string[];
-	warnings: string[];
-	directory?: unknown;
-}
-
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -61,12 +54,8 @@ function getStringProperty(value: unknown, name: string): string | undefined {
 	return typeof property === "string" ? property : undefined;
 }
 
-function validationResponse(result: ValidationResult, status = 200): Response {
-	return Response.json(result, { status });
-}
-
-function errorResponse(errors: string[], status = 400): Response {
-	return validationResponse({ ok: false, errors, warnings: [] }, status);
+function errorResponse(error: string, status = 400): Response {
+	return Response.json({ error }, { status });
 }
 
 function getTurnstileSiteKey(env: Env): string {
@@ -174,59 +163,28 @@ async function validateTurnstile(
 	}
 }
 
-function validateDirectoryURL(url: string): URL | Response {
+function validateDirectoryURL(url: string): URL | string {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);
 	} catch {
-		return errorResponse(["URL must be valid"]);
+		return "URL must be valid";
 	}
 
 	if (parsed.protocol !== "https:") {
-		return errorResponse(['Directory URL must use "https:"']);
+		return 'Directory URL must use "https:"';
 	}
 	if (parsed.username !== "" || parsed.password !== "") {
-		return errorResponse(["Directory URL must not include credentials"]);
+		return "Directory URL must not include credentials";
 	}
 	if (parsed.port !== "") {
-		return errorResponse(["Directory URL must not use a custom port"]);
+		return "Directory URL must not use a custom port";
 	}
 	if (parsed.pathname !== HTTP_MESSAGE_SIGNATURES_DIRECTORY) {
-		return errorResponse([
-			`Directory URL path must be ${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`,
-		]);
+		return `Directory URL path must be ${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`;
 	}
 
 	return parsed;
-}
-
-function validateDirectoryShape(directory: unknown): ValidationResult {
-	const errors: string[] = [];
-	const warnings: string[] = [];
-
-	if (directory === null || typeof directory !== "object") {
-		return { ok: false, errors: ["Directory must be a JSON object"], warnings };
-	}
-
-	const keys = getProperty(directory, "keys");
-	if (!Array.isArray(keys)) {
-		errors.push("Directory must include a keys array");
-	} else if (keys.length === 0) {
-		errors.push("Directory keys array must not be empty");
-	} else {
-		for (const [index, key] of keys.entries()) {
-			if (key === null || typeof key !== "object") {
-				errors.push(`keys[${index}] must be a JSON object`);
-			}
-		}
-	}
-
-	const purpose = getProperty(directory, "purpose");
-	if (purpose !== undefined && typeof purpose !== "string") {
-		errors.push("Directory purpose must be a string when present");
-	}
-
-	return { ok: errors.length === 0, errors, warnings, directory };
 }
 
 async function readTextWithLimit(
@@ -257,33 +215,38 @@ async function readTextWithLimit(
 	}
 }
 
-async function validateDirectoryRequest(
+async function proxyDirectoryRequest(
 	request: Request,
 	env: Env
 ): Promise<Response> {
 	if (request.method !== "POST") {
-		return errorResponse(["Method not allowed"], 405);
+		return errorResponse("Method not allowed", 405);
+	}
+
+	const origin = request.headers.get("Origin");
+	if (origin !== new URL(request.url).origin) {
+		return errorResponse("Bad request");
 	}
 
 	let formData: FormData;
 	try {
 		formData = await request.formData();
 	} catch {
-		return errorResponse(["Request body must be form data"]);
+		return errorResponse("Request body must be form data");
 	}
 
 	const url = getStringFormValue(formData, "url");
 	const turnstileToken = getStringFormValue(formData, "cf-turnstile-response");
 	if (url === undefined || url.length === 0) {
-		return errorResponse(["Missing url"]);
+		return errorResponse("Missing url");
 	}
 	if (turnstileToken === undefined || turnstileToken.length === 0) {
-		return errorResponse(["Missing Turnstile token"]);
+		return errorResponse("Missing Turnstile token");
 	}
 
 	const parsed = validateDirectoryURL(url);
-	if (parsed instanceof Response) {
-		return parsed;
+	if (typeof parsed === "string") {
+		return errorResponse(parsed);
 	}
 
 	const turnstileOK = await validateTurnstile(
@@ -292,7 +255,7 @@ async function validateDirectoryRequest(
 		request.headers.get("CF-Connecting-IP")
 	);
 	if (!turnstileOK) {
-		return errorResponse(["Turnstile verification failed"], 403);
+		return errorResponse("Turnstile verification failed", 403);
 	}
 
 	let response: Response;
@@ -302,43 +265,26 @@ async function validateDirectoryRequest(
 			signal: AbortSignal.timeout(DIRECTORY_FETCH_TIMEOUT_MS),
 		});
 	} catch {
-		return errorResponse(["Directory fetch failed"], 502);
+		return errorResponse("Directory fetch failed", 502);
 	}
 
 	if (!response.ok) {
-		return errorResponse([`Directory returned HTTP ${response.status}`], 502);
-	}
-
-	const warnings: string[] = [];
-	const contentType = response.headers.get("Content-Type");
-	const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
-	if (
-		mediaType !== MediaType.HTTP_MESSAGE_SIGNATURES_DIRECTORY &&
-		mediaType !== "application/json"
-	) {
-		warnings.push(
-			`Directory returned unexpected Content-Type ${contentType ?? "none"}`
-		);
+		return errorResponse(`Directory returned HTTP ${response.status}`, 502);
 	}
 
 	let text: string;
 	try {
 		text = await readTextWithLimit(response, DIRECTORY_RESPONSE_MAX_BYTES);
 	} catch {
-		return errorResponse(["Directory response is too large"], 502);
+		return errorResponse("Directory response is too large", 502);
 	}
 
-	let directory: unknown;
-	try {
-		directory = JSON.parse(text);
-	} catch {
-		return errorResponse(["Directory response must be valid JSON"], 502);
-	}
-
-	const result = validateDirectoryShape(directory);
-	return validationResponse({
-		...result,
-		warnings: [...warnings, ...result.warnings],
+	return new Response(text, {
+		headers: {
+			"Access-Control-Allow-Origin": origin,
+			"Content-Type":
+				response.headers.get("Content-Type") ?? "application/json",
+		},
 	});
 }
 
@@ -437,8 +383,8 @@ export default {
 			return new Response(status);
 		}
 
-		if (url.pathname === "/v0/api/validate-directory") {
-			return validateDirectoryRequest(request, env);
+		if (url.pathname === "/v0/api/proxy-directory") {
+			return proxyDirectoryRequest(request, env);
 		}
 
 		if (url.pathname.startsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {

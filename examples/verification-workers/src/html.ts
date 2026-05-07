@@ -373,31 +373,78 @@ footer {
       return { errors, warnings };
     };
 
+    const validateDirectory = (directory) => {
+      const errors = [];
+      if (directory === null || typeof directory !== "object") {
+        return { errors: ["Directory must be a JSON object"], warnings: [] };
+      }
+
+      if (!Array.isArray(directory.keys)) {
+        errors.push("Directory must include a keys array");
+      } else if (directory.keys.length === 0) {
+        errors.push("Directory keys array must not be empty");
+      } else {
+        for (const [index, key] of directory.keys.entries()) {
+          if (key === null || typeof key !== "object") {
+            errors.push("keys[" + index + "] must be a JSON object");
+          }
+        }
+      }
+
+      if (directory.purpose !== undefined && typeof directory.purpose !== "string") {
+        errors.push("Directory purpose must be a string when present");
+      }
+
+      return { errors, warnings: [] };
+    };
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(form);
       result.textContent = "Checking directory...";
 
       try {
-        const response = await fetch("/v0/api/validate-directory", { method: "POST", body: data });
-        const body = await response.json();
-        if (body.ok) {
-          const keyValidation = await validateKeys(body.directory);
-          body.errors.push(...keyValidation.errors);
-          body.warnings.push(...keyValidation.warnings);
-          body.ok = body.errors.length === 0;
+        const response = await fetch("/v0/api/proxy-directory", { method: "POST", body: data });
+        const errors = [];
+        const warnings = [];
+
+        if (!response.ok) {
+          const body = await response.json();
+          errors.push(body.error || "Directory fetch failed");
+        } else {
+          const contentType = response.headers.get("Content-Type");
+          const mediaType = contentType ? contentType.split(";", 1)[0].trim().toLowerCase() : "";
+          if (mediaType !== "application/http-message-signatures-directory+json" && mediaType !== "application/json") {
+            warnings.push("Directory returned unexpected Content-Type " + (contentType || "none"));
+          }
+
+          const directory = await response.json();
+          const shapeValidation = validateDirectory(directory);
+          errors.push(...shapeValidation.errors);
+          warnings.push(...shapeValidation.warnings);
+
+          if (errors.length === 0) {
+            const keyValidation = await validateKeys(directory);
+            errors.push(...keyValidation.errors);
+            warnings.push(...keyValidation.warnings);
+          }
         }
+
         result.replaceChildren();
-        if (body.ok) {
+        if (errors.length === 0) {
           const paragraph = document.createElement("p");
           paragraph.textContent = "Directory looks valid.";
           result.append(paragraph);
         } else {
-          appendMessages("Directory check failed", body.errors);
+          appendMessages("Directory check failed", errors);
         }
-        appendMessages("Warnings", body.warnings);
+        appendMessages("Warnings", warnings);
       } catch {
         result.textContent = "Directory check failed.";
+      } finally {
+        if (window.turnstile) {
+          window.turnstile.reset("#directory-validator .cf-turnstile");
+        }
       }
     });
   </script>

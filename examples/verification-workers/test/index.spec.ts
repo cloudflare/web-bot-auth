@@ -27,13 +27,14 @@ import worker from "../src/index";
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 const sampleURL = "https://example.com";
-const validatorURL = `${sampleURL}/v0/api/validate-directory`;
+const proxyURL = `${sampleURL}/v0/api/proxy-directory`;
 const directoryURL = `${sampleURL}/.well-known/http-message-signatures-directory`;
 const turnstileVerifyURL =
 	"https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 const validatorHeaders = {
 	"CF-Connecting-IP": "192.0.2.1",
+	Origin: sampleURL,
 };
 
 function validatorRequest(body: Record<string, string>): Request {
@@ -41,7 +42,7 @@ function validatorRequest(body: Record<string, string>): Request {
 	for (const [name, value] of Object.entries(body)) {
 		formData.append(name, value);
 	}
-	return new IncomingRequest(validatorURL, {
+	return new IncomingRequest(proxyURL, {
 		body: formData,
 		headers: validatorHeaders,
 		method: "POST",
@@ -92,9 +93,9 @@ describe("/debug endpoint", () => {
 	});
 });
 
-describe("/v0/api/validate-directory endpoint", () => {
+describe("/v0/api/proxy-directory endpoint", () => {
 	it("rejects non-POST requests", async () => {
-		const request = new IncomingRequest(validatorURL, {
+		const request = new IncomingRequest(proxyURL, {
 			headers: validatorHeaders,
 		});
 		const ctx = createExecutionContext();
@@ -103,10 +104,25 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		expect(response.status).toEqual(405);
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Method not allowed"],
-			warnings: [],
+			error: "Method not allowed",
 		});
+	});
+
+	it("requires same-origin requests", async () => {
+		const fetch = vi.fn();
+		vi.stubGlobal("fetch", fetch);
+		const request = validatorRequest({
+			url: directoryURL,
+			"cf-turnstile-response": "token",
+		});
+		request.headers.set("Origin", "https://attacker.example");
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toEqual(400);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await response.json()).toEqual({ error: "Bad request" });
 	});
 
 	it("requires a Turnstile token", async () => {
@@ -114,9 +130,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		expect(response.status).toEqual(400);
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Missing Turnstile token"],
-			warnings: [],
+			error: "Missing Turnstile token",
 		});
 	});
 
@@ -133,9 +147,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		expect(response.status).toEqual(403);
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Turnstile verification failed"],
-			warnings: [],
+			error: "Turnstile verification failed",
 		});
 	});
 
@@ -151,9 +163,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 		expect(response.status).toEqual(400);
 		expect(fetch).not.toHaveBeenCalled();
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Directory URL must not use a custom port"],
-			warnings: [],
+			error: "Directory URL must not use a custom port",
 		});
 	});
 
@@ -176,9 +186,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		expect(response.status).toEqual(502);
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Directory fetch failed"],
-			warnings: [],
+			error: "Directory fetch failed",
 		});
 	});
 
@@ -202,9 +210,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 			signal: expect.any(AbortSignal),
 		});
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Directory returned HTTP 302"],
-			warnings: [],
+			error: "Directory returned HTTP 302",
 		});
 	});
 
@@ -218,13 +224,11 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		expect(response.status).toEqual(502);
 		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Directory response is too large"],
-			warnings: [],
+			error: "Directory response is too large",
 		});
 	});
 
-	it("validates a directory and warns on loose content type", async () => {
+	it("proxies a directory response", async () => {
 		const directory = {
 			keys: [{}],
 			purpose: "",
@@ -244,11 +248,10 @@ describe("/v0/api/validate-directory endpoint", () => {
 		});
 
 		expect(response.status).toEqual(200);
-		expect(await response.json()).toEqual({
-			ok: true,
-			errors: [],
-			directory,
-			warnings: ["Directory returned unexpected Content-Type text/plain"],
-		});
+		expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+			sampleURL
+		);
+		expect(response.headers.get("Content-Type")).toEqual("text/plain");
+		expect(await response.json()).toEqual(directory);
 	});
 });
