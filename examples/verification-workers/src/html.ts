@@ -348,22 +348,45 @@ footer {
       result.append(paragraph, list);
     };
 
+    const validateKeys = async (directory) => {
+      const errors = [];
+      const warnings = [];
+      let imported = 0;
+
+      for (const [index, key] of directory.keys.entries()) {
+        if (key.kty !== "OKP" || key.crv !== "Ed25519") {
+          warnings.push("keys[" + index + "] is not an Ed25519 OKP key");
+          continue;
+        }
+        try {
+          await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, true, ["verify"]);
+          imported += 1;
+        } catch {
+          errors.push("keys[" + index + "] could not be imported as Ed25519");
+        }
+      }
+
+      if (imported === 0) {
+        errors.push("Directory does not contain an importable Ed25519 key");
+      }
+
+      return { errors, warnings };
+    };
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(form);
-      const turnstileToken = data.get("cf-turnstile-response");
       result.textContent = "Checking directory...";
 
       try {
-        const response = await fetch("/v0/api/validate-directory", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: data.get("url"),
-            turnstileToken,
-          }),
-        });
+        const response = await fetch("/v0/api/validate-directory", { method: "POST", body: data });
         const body = await response.json();
+        if (body.ok) {
+          const keyValidation = await validateKeys(body.directory);
+          body.errors.push(...keyValidation.errors);
+          body.warnings.push(...keyValidation.warnings);
+          body.ok = body.errors.length === 0;
+        }
         result.replaceChildren();
         if (body.ok) {
           const paragraph = document.createElement("p");
@@ -373,12 +396,8 @@ footer {
           appendMessages("Directory check failed", body.errors);
         }
         appendMessages("Warnings", body.warnings);
-      } catch (_e) {
+      } catch {
         result.textContent = "Directory check failed.";
-      } finally {
-        if (window.turnstile) {
-          window.turnstile.reset("#directory-validator .cf-turnstile");
-        }
       }
     });
   </script>
