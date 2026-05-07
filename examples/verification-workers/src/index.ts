@@ -37,6 +37,7 @@ interface ValidationResult {
 	ok: boolean;
 	errors: string[];
 	warnings: string[];
+	directory?: unknown;
 }
 
 function errorMessage(error: unknown): string {
@@ -60,11 +61,6 @@ function getStringProperty(value: unknown, name: string): string | undefined {
 	return typeof property === "string" ? property : undefined;
 }
 
-function getBooleanProperty(value: unknown, name: string): boolean | undefined {
-	const property = getProperty(value, name);
-	return typeof property === "boolean" ? property : undefined;
-}
-
 function validationResponse(result: ValidationResult, status = 200): Response {
 	return Response.json(result, { status });
 }
@@ -77,17 +73,12 @@ function getTurnstileSiteKey(env: Env): string {
 	return getStringProperty(env, "TURNSTILE_SITE_KEY") ?? "";
 }
 
-function base64urlDecodedLength(value: string): number | undefined {
-	if (!/^[A-Za-z0-9_-]+$/.test(value)) {
-		return undefined;
-	}
-	try {
-		const padding = "=".repeat((4 - (value.length % 4)) % 4);
-		return atob(value.replaceAll("-", "+").replaceAll("_", "/") + padding)
-			.length;
-	} catch {
-		return undefined;
-	}
+function getStringFormValue(
+	formData: FormData,
+	name: string
+): string | undefined {
+	const value = formData.get(name);
+	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 async function getExampleDirectory(): Promise<Directory> {
@@ -177,35 +168,10 @@ async function validateTurnstile(
 
 	try {
 		const body: unknown = await response.json();
-		return getBooleanProperty(body, "success") === true;
+		return getProperty(body, "success") === true;
 	} catch {
 		return false;
 	}
-}
-
-function hasExpectedRequestContext(request: Request): boolean {
-	const requestOrigin = new URL(request.url).origin;
-	if (request.headers.get("Origin") !== requestOrigin) {
-		return false;
-	}
-
-	const referer = request.headers.get("Referer");
-	if (referer === null) {
-		return false;
-	}
-	try {
-		if (new URL(referer).origin !== requestOrigin) {
-			return false;
-		}
-	} catch {
-		return false;
-	}
-
-	return (
-		request.headers.get("Sec-Fetch-Site") === "same-origin" &&
-		request.headers.get("Sec-Fetch-Mode") === "cors" &&
-		request.headers.get("Sec-Fetch-Dest") === "empty"
-	);
 }
 
 function validateDirectoryURL(url: string): URL | Response {
@@ -234,7 +200,7 @@ function validateDirectoryURL(url: string): URL | Response {
 	return parsed;
 }
 
-function validateDirectory(directory: unknown): ValidationResult {
+function validateDirectoryShape(directory: unknown): ValidationResult {
 	const errors: string[] = [];
 	const warnings: string[] = [];
 
@@ -251,28 +217,6 @@ function validateDirectory(directory: unknown): ValidationResult {
 		for (const [index, key] of keys.entries()) {
 			if (key === null || typeof key !== "object") {
 				errors.push(`keys[${index}] must be a JSON object`);
-				continue;
-			}
-
-			const kty = getStringProperty(key, "kty");
-			if (kty === undefined) {
-				errors.push(`keys[${index}].kty must be a string`);
-				continue;
-			}
-
-			if (kty !== "OKP") {
-				warnings.push(`keys[${index}].kty is not OKP`);
-				continue;
-			}
-
-			if (getStringProperty(key, "crv") !== "Ed25519") {
-				errors.push(`keys[${index}].crv must be Ed25519`);
-			}
-			const x = getStringProperty(key, "x");
-			if (x === undefined) {
-				errors.push(`keys[${index}].x must be a string`);
-			} else if (base64urlDecodedLength(x) !== 32) {
-				errors.push(`keys[${index}].x must be a 32-byte base64url value`);
 			}
 		}
 	}
@@ -282,7 +226,7 @@ function validateDirectory(directory: unknown): ValidationResult {
 		errors.push("Directory purpose must be a string when present");
 	}
 
-	return { ok: errors.length === 0, errors, warnings };
+	return { ok: errors.length === 0, errors, warnings, directory };
 }
 
 async function readTextWithLimit(
@@ -320,19 +264,16 @@ async function validateDirectoryRequest(
 	if (request.method !== "POST") {
 		return errorResponse(["Method not allowed"], 405);
 	}
-	if (!hasExpectedRequestContext(request)) {
-		return errorResponse(["Bad request"]);
-	}
 
-	let body: unknown;
+	let formData: FormData;
 	try {
-		body = await request.json();
+		formData = await request.formData();
 	} catch {
-		return errorResponse(["Request body must be valid JSON"]);
+		return errorResponse(["Request body must be form data"]);
 	}
 
-	const url = getStringProperty(body, "url");
-	const turnstileToken = getStringProperty(body, "turnstileToken");
+	const url = getStringFormValue(formData, "url");
+	const turnstileToken = getStringFormValue(formData, "cf-turnstile-response");
 	if (url === undefined || url.length === 0) {
 		return errorResponse(["Missing url"]);
 	}
@@ -394,7 +335,7 @@ async function validateDirectoryRequest(
 		return errorResponse(["Directory response must be valid JSON"], 502);
 	}
 
-	const result = validateDirectory(directory);
+	const result = validateDirectoryShape(directory);
 	return validationResponse({
 		...result,
 		warnings: [...warnings, ...result.warnings],

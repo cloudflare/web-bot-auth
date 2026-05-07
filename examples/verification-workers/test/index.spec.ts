@@ -29,23 +29,20 @@ const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 const sampleURL = "https://example.com";
 const validatorURL = `${sampleURL}/v0/api/validate-directory`;
 const directoryURL = `${sampleURL}/.well-known/http-message-signatures-directory`;
-const validEd25519X = "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs";
 const turnstileVerifyURL =
 	"https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 const validatorHeaders = {
 	"CF-Connecting-IP": "192.0.2.1",
-	"Content-Type": "application/json",
-	Origin: sampleURL,
-	Referer: `${sampleURL}/`,
-	"Sec-Fetch-Dest": "empty",
-	"Sec-Fetch-Mode": "cors",
-	"Sec-Fetch-Site": "same-origin",
 };
 
 function validatorRequest(body: Record<string, string>): Request {
+	const formData = new FormData();
+	for (const [name, value] of Object.entries(body)) {
+		formData.append(name, value);
+	}
 	return new IncomingRequest(validatorURL, {
-		body: JSON.stringify(body),
+		body: formData,
 		headers: validatorHeaders,
 		method: "POST",
 	});
@@ -112,27 +109,6 @@ describe("/v0/api/validate-directory endpoint", () => {
 		});
 	});
 
-	it("requires same-origin browser context", async () => {
-		const fetch = vi.fn();
-		vi.stubGlobal("fetch", fetch);
-		const request = new IncomingRequest(validatorURL, {
-			body: JSON.stringify({ url: directoryURL, turnstileToken: "token" }),
-			headers: { ...validatorHeaders, Origin: "https://attacker.example" },
-			method: "POST",
-		});
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
-		await waitOnExecutionContext(ctx);
-
-		expect(response.status).toEqual(400);
-		expect(fetch).not.toHaveBeenCalled();
-		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["Bad request"],
-			warnings: [],
-		});
-	});
-
 	it("requires a Turnstile token", async () => {
 		const response = await fetchValidator({ url: directoryURL });
 
@@ -152,7 +128,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		const response = await fetchValidator({
 			url: directoryURL,
-			turnstileToken: "token",
+			"cf-turnstile-response": "token",
 		});
 
 		expect(response.status).toEqual(403);
@@ -169,7 +145,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		const response = await fetchValidator({
 			url: "https://example.com:8443/.well-known/http-message-signatures-directory",
-			turnstileToken: "token",
+			"cf-turnstile-response": "token",
 		});
 
 		expect(response.status).toEqual(400);
@@ -195,7 +171,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		const response = await fetchValidator({
 			url: directoryURL,
-			turnstileToken: "token",
+			"cf-turnstile-response": "token",
 		});
 
 		expect(response.status).toEqual(502);
@@ -217,7 +193,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		const response = await fetchValidator({
 			url: directoryURL,
-			turnstileToken: "token",
+			"cf-turnstile-response": "token",
 		});
 
 		expect(response.status).toEqual(502);
@@ -237,7 +213,7 @@ describe("/v0/api/validate-directory endpoint", () => {
 
 		const response = await fetchValidator({
 			url: directoryURL,
-			turnstileToken: "token",
+			"cf-turnstile-response": "token",
 		});
 
 		expect(response.status).toEqual(502);
@@ -248,77 +224,30 @@ describe("/v0/api/validate-directory endpoint", () => {
 		});
 	});
 
-	it("rejects unusable Ed25519 keys", async () => {
-		vi.stubGlobal(
-			"fetch",
-			mockedFetch(
-				Response.json({
-					keys: [{ crv: "Ed25519", kty: "OKP" }],
-					purpose: "",
-				})
-			)
-		);
-
-		const response = await fetchValidator({
-			url: directoryURL,
-			turnstileToken: "token",
-		});
-
-		expect(response.status).toEqual(200);
-		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["keys[0].x must be a string"],
-			warnings: [],
-		});
-	});
-
-	it("rejects malformed Ed25519 key material", async () => {
-		vi.stubGlobal(
-			"fetch",
-			mockedFetch(
-				Response.json({
-					keys: [{ crv: "Ed25519", kty: "OKP", x: "abc" }],
-					purpose: "",
-				})
-			)
-		);
-
-		const response = await fetchValidator({
-			url: directoryURL,
-			turnstileToken: "token",
-		});
-
-		expect(response.status).toEqual(200);
-		expect(await response.json()).toEqual({
-			ok: false,
-			errors: ["keys[0].x must be a 32-byte base64url value"],
-			warnings: [],
-		});
-	});
-
 	it("validates a directory and warns on loose content type", async () => {
+		const directory = {
+			keys: [{}],
+			purpose: "",
+		};
 		vi.stubGlobal(
 			"fetch",
 			mockedFetch(
-				new Response(
-					JSON.stringify({
-						keys: [{ crv: "Ed25519", kty: "OKP", x: validEd25519X }],
-						purpose: "",
-					}),
-					{ headers: { "Content-Type": "text/plain" } }
-				)
+				new Response(JSON.stringify(directory), {
+					headers: { "Content-Type": "text/plain" },
+				})
 			)
 		);
 
 		const response = await fetchValidator({
 			url: directoryURL,
-			turnstileToken: "token",
+			"cf-turnstile-response": "token",
 		});
 
 		expect(response.status).toEqual(200);
 		expect(await response.json()).toEqual({
 			ok: true,
 			errors: [],
+			directory,
 			warnings: ["Directory returned unexpected Content-Type text/plain"],
 		});
 	});
