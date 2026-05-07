@@ -59,27 +59,32 @@ function parseSfvDictionary(
       return component;
     }
 
+    const parameters: ComponentParameters = new Map();
+    let key: string | undefined;
     for (const [paramName, paramValue] of componentParams.entries()) {
       if (typeof paramValue !== "string" && typeof paramValue !== "boolean") {
         throw new Error(
           `Failed to parse parameter ${paramName} on ${component}: type is neither string nor boolean`
         );
       }
+
+      parameters.set(paramName, paramValue);
+      if (paramName === "key" && typeof paramValue === "string") {
+        key = paramValue;
+      }
     }
 
-    if (
-      componentParams.has("key") &&
-      typeof componentParams.get("key") === "string"
-    ) {
+    if (key !== undefined) {
       return {
         header: component,
-        key: componentParams.get("key") as string,
+        key,
+        parameters,
       };
     }
 
     return {
       name: component,
-      parameters: componentParams as ComponentParameters,
+      parameters,
     };
   });
 

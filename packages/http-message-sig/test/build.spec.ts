@@ -250,8 +250,53 @@ describe("build", () => {
         '("test-structured-field";key="test-key");created=1618884475;keyid="test-key-rsa-pss"'
       );
       expect(data).to.equal(
-        '"test-structured-field";key="test-key": test-value\n' +
+        '"test-structured-field";key="test-key": "test-value"\n' +
           '"@signature-params": ("test-structured-field";key="test-key");created=1618884475;keyid="test-key-rsa-pss"'
+      );
+    });
+
+    it("constructs structured-field dictionary value with a comma", () => {
+      const request: RequestLike = {
+        ...testRequest,
+        headers: {
+          ...testRequest.headers,
+          "Test-Structured-Field": 'test-key="test,value", other-key="other"',
+        },
+      };
+      const components: Component[] = [
+        { header: "Test-Structured-Field", key: "test-key" },
+      ];
+      const data = buildSignedData(
+        request,
+        components,
+        '("test-structured-field";key="test-key");created=1618884475;keyid="test-key-rsa-pss"'
+      );
+      expect(data).to.equal(
+        '"test-structured-field";key="test-key": "test,value"\n' +
+          '"@signature-params": ("test-structured-field";key="test-key");created=1618884475;keyid="test-key-rsa-pss"'
+      );
+    });
+
+    it("constructs structured-field dictionary with req parameter", () => {
+      const response: ResponseLike = {
+        status: 200,
+        headers: {},
+      };
+      const components: Component[] = [
+        {
+          header: "Test-Structured-Field",
+          key: "test-key",
+          parameters: new Map([["req", true]]),
+        },
+      ];
+      const data = buildSignedData(
+        { request: testRequest, response },
+        components,
+        '("test-structured-field";key="test-key";req);created=1618884475;keyid="test-key-rsa-pss"'
+      );
+      expect(data).to.equal(
+        '"test-structured-field";key="test-key";req: "test-value"\n' +
+          '"@signature-params": ("test-structured-field";key="test-key";req);created=1618884475;keyid="test-key-rsa-pss"'
       );
     });
 
