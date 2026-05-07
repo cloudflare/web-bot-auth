@@ -6,7 +6,7 @@ import {
   RequestLike,
   ResponseLike,
   ResponseRequestPair,
-  StructuredFieldComponent,
+  StructuredFieldDictionaryComponent,
 } from "./types";
 import {
   isInnerList,
@@ -23,7 +23,7 @@ import {
  */
 export function extractStructuredFieldDictionaryHeader(
   r: RequestLike | ResponseLike,
-  component: StructuredFieldComponent
+  component: StructuredFieldDictionaryComponent
 ): string {
   const headerValue = extractHeader(r, component.header);
   if (!headerValue) return headerValue;
@@ -112,14 +112,14 @@ export function extractComponent(
   }
 }
 
-export function isStructuredFieldComponent(
+export function isStructuredFieldDictionaryComponent(
   component: Component
-): component is StructuredFieldComponent {
+): component is StructuredFieldDictionaryComponent {
   return typeof component === "object" && "header" in component;
 }
 
 function structuredFieldComponentParameters(
-  cwp: StructuredFieldComponent
+  cwp: StructuredFieldDictionaryComponent
 ): ComponentParameters {
   if (!cwp.parameters) {
     return new Map([["key", cwp.key]]);
@@ -144,7 +144,7 @@ export function serializeComponent(cwp: Component): string {
     return `"${cwp.toLowerCase()}"`;
   }
 
-  if (isStructuredFieldComponent(cwp)) {
+  if (isStructuredFieldDictionaryComponent(cwp)) {
     const parameters = structuredFieldComponentParameters(cwp);
     return serializeItem(`${cwp.header.toLowerCase()}`, parameters);
   }
@@ -163,7 +163,7 @@ export function isRawMessage(
 
 export function componentHasParameters(
   component: Component
-): component is ComponentWithParameters | StructuredFieldComponent {
+): component is ComponentWithParameters | StructuredFieldDictionaryComponent {
   return (
     typeof component === "object" &&
     "parameters" in component &&
@@ -227,7 +227,7 @@ export function buildSignedData(
       value = component.startsWith("@")
         ? extractComponent(messageToUse, component)
         : extractHeader(messageToUse, component);
-    } else if (isStructuredFieldComponent(component)) {
+    } else if (isStructuredFieldDictionaryComponent(component)) {
       value = extractStructuredFieldDictionaryHeader(messageToUse, component);
     } else {
       const componentName = component.name;
