@@ -65,6 +65,7 @@ export type Parameter =
 export interface StructuredFieldComponent {
   header: string;
   key: string;
+  parameters?: ComponentParameters;
 }
 
 export type Component =

@@ -1,5 +1,6 @@
 import {
   Component,
+  ComponentParameters,
   ComponentWithParameters,
   Parameters,
   RequestLike,
@@ -7,17 +8,18 @@ import {
   ResponseRequestPair,
   StructuredFieldComponent,
 } from "./types";
-import { serializeItem } from "structured-headers";
+import {
+  isInnerList,
+  parseDictionary,
+  serializeInnerList,
+  serializeItem,
+} from "structured-headers";
 
 /**
  * Extract a value from a dictionary-style header by key.
  *
- * WARNING: This is a best-effort parser that does NOT conform to RFC 8941.
- * It splits on commas and equals signs, which will misparse values containing
- * commas in quoted strings, inner lists, or base64 sequences. It also does
- * not unescape escaped quotes (\\") or validate key syntax.
- * Use only for headers with simple dictionary values where keys map to
- * quoted strings or bare tokens without commas.
+ * The selected member value is serialized per RFC 8941, as required by
+ * RFC 9421 section 2.1.2.
  */
 export function extractStructuredFieldDictionaryHeader(
   r: RequestLike | ResponseLike,
@@ -26,14 +28,15 @@ export function extractStructuredFieldDictionaryHeader(
   const headerValue = extractHeader(r, component.header);
   if (!headerValue) return headerValue;
 
-  const items = headerValue.split(",").map((item) => item.trim());
-  for (const item of items) {
-    const [key, ...rest] = item.split("=");
-    if (key === component.key) {
-      return rest.join("=").replace(/^"|"$/g, "");
-    }
+  const dictionary = parseDictionary(headerValue);
+  const item = dictionary.get(component.key);
+  if (!item) {
+    throw new Error(
+      `Header ${component.header} does not contain dictionary key ${component.key}`
+    );
   }
-  return "";
+
+  return isInnerList(item) ? serializeInnerList(item) : serializeItem(item);
 }
 
 export function extractHeader(
@@ -112,7 +115,28 @@ export function extractComponent(
 export function isStructuredFieldComponent(
   component: Component
 ): component is StructuredFieldComponent {
-  return (component as StructuredFieldComponent).header !== undefined;
+  return typeof component === "object" && "header" in component;
+}
+
+function structuredFieldComponentParameters(
+  cwp: StructuredFieldComponent
+): ComponentParameters {
+  if (!cwp.parameters) {
+    return new Map([["key", cwp.key]]);
+  }
+
+  const key = cwp.parameters.get("key");
+  if (key === cwp.key) {
+    return cwp.parameters;
+  }
+
+  if (key !== undefined) {
+    throw new Error(
+      `Structured field component key mismatch ${key.toString()} !== ${cwp.key}`
+    );
+  }
+
+  return new Map([["key", cwp.key], ...cwp.parameters]);
 }
 
 export function serializeComponent(cwp: Component): string {
@@ -121,7 +145,8 @@ export function serializeComponent(cwp: Component): string {
   }
 
   if (isStructuredFieldComponent(cwp)) {
-    return `"${cwp.header.toLowerCase()}";key="${cwp.key}"`;
+    const parameters = structuredFieldComponentParameters(cwp);
+    return serializeItem(`${cwp.header.toLowerCase()}`, parameters);
   }
 
   return serializeItem(`${cwp.name.toLowerCase()}`, cwp.parameters);
@@ -138,8 +163,12 @@ export function isRawMessage(
 
 export function componentHasParameters(
   component: Component
-): component is ComponentWithParameters {
-  return (component as ComponentWithParameters).parameters !== undefined;
+): component is ComponentWithParameters | StructuredFieldComponent {
+  return (
+    typeof component === "object" &&
+    "parameters" in component &&
+    component.parameters !== undefined
+  );
 }
 
 export function resolveMessageKind(

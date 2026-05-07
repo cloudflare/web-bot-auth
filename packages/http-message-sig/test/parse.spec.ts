@@ -38,6 +38,30 @@ describe("parse.ts", () => {
       });
     });
 
+    it("should parse a structured-field component with req", () => {
+      const header =
+        'sig1=("@status" "signature-agent";key="agent2";req);created=1618884475';
+      const result = parseSignatureInputHeader(header);
+
+      expect(result).to.deep.equal({
+        key: "sig1",
+        components: [
+          "@status",
+          {
+            header: "signature-agent",
+            key: "agent2",
+            parameters: new Map([
+              ["key", "agent2"],
+              ["req", true],
+            ]),
+          },
+        ],
+        parameters: {
+          created: new Date(1618884475 * 1000),
+        },
+      });
+    });
+
     it("should throw an error on an invalid components string", () => {
       const header = "sig1=(@method, @path, @authority, digest);invalid=foo";
       expect(() => parseSignatureInputHeader(header)).to.throw(
