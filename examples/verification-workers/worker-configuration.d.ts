@@ -5,6 +5,8 @@ declare namespace Cloudflare {
 	interface Env {
 		SIGNATURE_AGENT: "http-message-signatures-example.research.cloudflare.com";
 		TARGET_URL: "https://http-message-signatures-example.research.cloudflare.com/debug";
+		TURNSTILE_SECRET_KEY: string;
+		TURNSTILE_SITE_KEY: string;
 	}
 }
 interface Env extends Cloudflare.Env {}
