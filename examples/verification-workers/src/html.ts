@@ -12,12 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const generateHTML = (status?: boolean) => `<!DOCTYPE html>
+function escapeAttribute(value: string): string {
+	return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+}
+
+export const generateHTML = (
+	status: boolean | undefined,
+	turnstileSiteKey: string
+) => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Identify Bots with HTTP Message Signatures</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>* {
   margin: 0;
   padding: 0;
@@ -189,6 +197,26 @@ button:focus {
 button:active {
   box-shadow: inset 0 1px 1px 1px rgba(0,0,0,.4);
 }
+input[type="url"] {
+  border: 1px solid #999;
+  border-radius: 6px;
+  box-sizing: border-box;
+  display: block;
+  font: inherit;
+  margin: 0.5rem 0 1rem;
+  max-width: 720px;
+  padding: 8px 10px;
+  width: 100%;
+}
+.validation-result {
+  margin-top: 0.75rem;
+}
+.validation-result ul {
+  padding-left: 1.5rem;
+}
+.validation-result li {
+  margin-bottom: 0.25rem;
+}
 
 .question-list {
   margin-bottom: 2rem;
@@ -273,6 +301,18 @@ footer {
       </ul>
     </p>
 
+    <h2>Validate your key directory</h2>
+    <p>
+      Paste the full HTTPS URL for a <code>/.well-known/http-message-signatures-directory</code> endpoint to check whether it returns a usable directory.
+    </p>
+    <form id="directory-validator">
+      <label for="directory-url">Directory URL</label>
+      <input id="directory-url" name="url" type="url" placeholder="https://example.com/.well-known/http-message-signatures-directory" required />
+      <div class="cf-turnstile" data-sitekey="${escapeAttribute(turnstileSiteKey)}"></div>
+      <button type="submit">Validate directory</button>
+      <div id="directory-validation-result" class="validation-result" aria-live="polite"></div>
+    </form>
+
     <h2>It's hard to debug. How can this website help?</h2>
     <p>
     This website expose an endpoint dropping incoming request headers on <a>/debug</a>
@@ -289,9 +329,58 @@ footer {
     To contribute to the standard discussion, the current draft is hosted on <a href="https://github.com/thibmeu/http-message-signatures-directory">thibmeu/http-message-signatures-directory</a>, and is being discussed on <a href="https://mailarchive.ietf.org/arch/browse/web-bot-auth/">web-bot-auth</a> IETF mailing list.
     </p>
   </section>
+  <script>
+    const form = document.getElementById("directory-validator");
+    const result = document.getElementById("directory-validation-result");
+
+    const appendMessages = (heading, messages) => {
+      if (messages.length === 0) {
+        return;
+      }
+      const paragraph = document.createElement("p");
+      paragraph.textContent = heading;
+      const list = document.createElement("ul");
+      for (const message of messages) {
+        const item = document.createElement("li");
+        item.textContent = message;
+        list.append(item);
+      }
+      result.append(paragraph, list);
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const turnstileToken = data.get("cf-turnstile-response");
+      result.textContent = "Checking directory...";
+
+      try {
+        const response = await fetch("/v0/api/validate-directory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: data.get("url"),
+            turnstileToken,
+          }),
+        });
+        const body = await response.json();
+        result.replaceChildren();
+        if (body.ok) {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = "Directory looks valid.";
+          result.append(paragraph);
+        } else {
+          appendMessages("Directory check failed", body.errors);
+        }
+        appendMessages("Warnings", body.warnings);
+      } catch (_e) {
+        result.textContent = "Directory check failed.";
+      } finally {
+        if (window.turnstile) {
+          window.turnstile.reset("#directory-validator .cf-turnstile");
+        }
+      }
+    });
+  </script>
 </body>
 </html>`;
-
-export const neutralHTML = generateHTML();
-export const invalidHTML = generateHTML(false);
-export const validHTML = generateHTML(true);
