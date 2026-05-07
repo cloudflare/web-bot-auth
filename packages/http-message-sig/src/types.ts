@@ -62,7 +62,7 @@ export type Parameter =
   | "keyid"
   | string;
 
-export interface StructuredFieldComponent {
+export interface StructuredFieldDictionaryComponent {
   header: string;
   key: string;
   parameters?: ComponentParameters;
@@ -80,7 +80,7 @@ export type Component =
   | "@status"
   | string
   | ComponentWithParameters
-  | StructuredFieldComponent;
+  | StructuredFieldDictionaryComponent;
 
 export interface ComponentWithParameters {
   name: string;
@@ -111,7 +111,7 @@ export type SignOptions = StandardParameters & {
   [name: Parameter]:
     | Component[]
     | ComponentWithParameters[]
-    | StructuredFieldComponent[]
+    | StructuredFieldDictionaryComponent[]
     | Signer
     | string
     | number
@@ -128,7 +128,7 @@ export type SignSyncOptions = StandardParameters & {
   [name: Parameter]:
     | Component[]
     | ComponentWithParameters[]
-    | StructuredFieldComponent[]
+    | StructuredFieldDictionaryComponent[]
     | SignerSync
     | string
     | number
