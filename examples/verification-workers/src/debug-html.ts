@@ -76,6 +76,19 @@ textarea {
 .debug-tool {
   margin-bottom: 3rem;
 }
+.section-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 0.6rem;
+}
+.section-link {
+  opacity: 0;
+  text-decoration: none;
+}
+.debug-tool:hover .section-link,
+.section-link:focus {
+  opacity: 1;
+}
 .header-grid {
   display: grid;
   grid-template-columns: 16rem minmax(0, 1fr);
@@ -145,8 +158,8 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       This page collects debugging tools for Web Bot Auth implementations. Start by validating the key directory.
     </p>
 
-    <div class="debug-tool">
-      <h2>Validate key directory</h2>
+    <div id="validate-directory" class="debug-tool">
+      <h2 class="section-heading">Validate key directory <a class="section-link" href="#section=validate-directory" data-section="validate-directory">#</a></h2>
       <p>
         Paste the full HTTPS URL for a <code>/.well-known/http-message-signatures-directory</code> endpoint to check whether it returns a usable directory.
       </p>
@@ -160,8 +173,8 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       </form>
     </div>
 
-    <div class="debug-tool">
-      <h2>Get JWK keyid</h2>
+    <div id="get-jwk-keyid" class="debug-tool">
+      <h2 class="section-heading">Get JWK keyid <a class="section-link" href="#section=get-jwk-keyid" data-section="get-jwk-keyid">#</a></h2>
       <p>
         Paste a JWK to compute its RFC 7638 SHA-256 thumbprint for use as <code>keyid</code>.
       </p>
@@ -173,8 +186,8 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       </form>
     </div>
 
-    <div class="debug-tool">
-      <h2>Verify request headers</h2>
+    <div id="verify-request-headers" class="debug-tool">
+      <h2 class="section-heading">Verify request headers <a class="section-link" href="#section=verify-request-headers" data-section="verify-request-headers">#</a></h2>
       <p>
         Paste the signed request target, verification JWK, and HTTP Message Signature headers here.
       </p>
@@ -228,6 +241,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     </div>
   </section>
   <script>
+    const sectionLinks = Array.from(document.querySelectorAll(".section-link"));
     const form = document.getElementById("directory-validator");
     const result = document.getElementById("directory-validation-result");
     const keyIDForm = document.getElementById("key-id-calculator");
@@ -236,6 +250,89 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     const signatureForm = document.getElementById("signature-header-validator");
     const signatureResult = document.getElementById("signature-header-validation-result");
     const signatureJWK = document.getElementById("signature-jwk");
+
+    const fragmentParams = () => new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
+
+    const formValue = (id) => {
+      const element = document.getElementById(id);
+      return element !== null ? element.value : "";
+    };
+
+    const prefill = (id, name) => {
+      const value = fragmentParams().get(name);
+      const element = document.getElementById(id);
+      if (value !== null && element !== null) {
+        element.value = value;
+      }
+    };
+
+    prefill("directory-url", "directory-url");
+    prefill("key-id-jwk", "key-id-jwk");
+    prefill("signature-jwk", "signature-jwk");
+    if (formValue("key-id-jwk") === "") {
+      prefill("key-id-jwk", "jwk");
+    }
+    if (formValue("signature-jwk") === "") {
+      prefill("signature-jwk", "jwk");
+    }
+    prefill("signature-method", "method");
+    prefill("signature-url", "url");
+    prefill("signature-header", "signature");
+    prefill("signature-agent-header", "signature-agent");
+    prefill("signature-input-header", "signature-input");
+
+    const currentSectionURL = (section) => {
+      const params = new URLSearchParams();
+      const directoryURL = formValue("directory-url");
+      const values = [
+        ["section", section],
+        ["directory-url", directoryURL],
+        ["key-id-jwk", formValue("key-id-jwk")],
+        ["signature-jwk", formValue("signature-jwk")],
+        ["method", formValue("signature-method")],
+        ["url", formValue("signature-url")],
+        ["signature", formValue("signature-header")],
+        ["signature-agent", formValue("signature-agent-header")],
+        ["signature-input", formValue("signature-input-header")],
+      ];
+      for (const [name, value] of values) {
+        if (value !== "") {
+          params.set(name, value);
+        }
+      }
+      const url = new URL(window.location.href);
+      url.search = "";
+      url.hash = params.toString();
+      return url.toString();
+    };
+
+    const scrollToFragmentSection = () => {
+      const section = fragmentParams().get("section");
+      if (section !== null) {
+        const element = document.getElementById(section);
+        if (element !== null) {
+          element.scrollIntoView();
+        }
+      }
+    };
+
+    const updateSectionLink = (link) => {
+      const section = link.getAttribute("data-section") || "";
+      link.href = currentSectionURL(section);
+    };
+
+    for (const link of sectionLinks) {
+      link.addEventListener("pointerenter", () => updateSectionLink(link));
+      link.addEventListener("focus", () => updateSectionLink(link));
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        updateSectionLink(link);
+        history.pushState(null, "", link.href);
+        scrollToFragmentSection();
+      });
+    }
+
+    scrollToFragmentSection();
 
     const appendMessagesTo = (target, heading, messages) => {
       if (messages.length === 0) {
@@ -476,6 +573,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     };
 
     const validateWebBotAuthParams = (params) => {
+      const warnings = [];
       if (params.tag !== "web-bot-auth") {
         throw new Error("tag must be 'web-bot-auth'");
       }
@@ -487,8 +585,9 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
         throw new Error("created in the future");
       }
       if (typeof params.expires === "number" && params.expires < now) {
-        throw new Error("signature has expired");
+        warnings.push("signature has expired");
       }
+      return warnings;
     };
 
     const verifySignatureLocally = async (data) => {
@@ -501,7 +600,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       const keyID = await computeJWKKeyID(key);
 
       const parsed = parseSignatureInputHeader(data.get("signature-input"));
-      validateWebBotAuthParams(parsed.params);
+      const warnings = validateWebBotAuthParams(parsed.params);
       if (parsed.params.keyid !== keyID) {
         throw new Error("JWK keyid does not match Signature-Input keyid");
       }
@@ -516,7 +615,8 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       const signedData = buildSignedData(parsed, request, headers);
       const signature = parseSignatureHeader(parsed.key, data.get("signature"));
       const cryptoKey = await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, true, ["verify"]);
-      return crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, signature, new TextEncoder().encode(signedData));
+      const valid = await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, signature, new TextEncoder().encode(signedData));
+      return { valid, warnings };
     };
 
     keyIDForm.addEventListener("submit", async (event) => {
@@ -539,10 +639,16 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       signatureResult.textContent = "Verifying signature...";
 
       try {
-        if (await verifySignatureLocally(data)) {
-          signatureResult.textContent = "Signature is valid.";
+        const verification = await verifySignatureLocally(data);
+        signatureResult.replaceChildren();
+        const message = document.createElement("p");
+        if (verification.valid) {
+          message.textContent = "Signature is valid.";
+          signatureResult.append(message);
+          appendMessagesTo(signatureResult, "Warnings", verification.warnings);
         } else {
-          signatureResult.textContent = "Signature check failed: invalid signature";
+          message.textContent = "Signature check failed: invalid signature";
+          signatureResult.append(message);
         }
       } catch (error) {
         signatureResult.textContent = "Signature check failed: " + (error instanceof Error ? error.message : String(error));

@@ -114,6 +114,31 @@ describe("/debug endpoint", () => {
 		expect(body).not.toContain('data-sitekey=""');
 	});
 
+	it("renders section fragment tooling", async () => {
+		const request = new Request(`${sampleURL}/debug`);
+		const response = await SELF.fetch(request);
+		const body = await response.text();
+
+		expect(body).toContain("section-link");
+		expect(body).toContain('data-section="validate-directory"');
+		expect(body).toContain('data-section="get-jwk-keyid"');
+		expect(body).toContain('data-section="verify-request-headers"');
+		expect(body).toContain("fragmentParams");
+		expect(body).toContain('prefill("key-id-jwk", "key-id-jwk")');
+		expect(body).toContain('prefill("signature-jwk", "signature-jwk")');
+		expect(body).toContain('prefill("key-id-jwk", "jwk")');
+		expect(body).toContain('prefill("signature-jwk", "jwk")');
+		expect(body).toContain('["section", section]');
+		expect(body).toContain('["key-id-jwk", formValue("key-id-jwk")]');
+		expect(body).toContain('["signature-jwk", formValue("signature-jwk")]');
+		expect(body).toContain("currentSectionURL");
+		expect(body).toContain("updateSectionLink");
+		expect(body).toContain('link.addEventListener("pointerenter"');
+		expect(body).toContain('link.addEventListener("focus"');
+		expect(body).toContain("url.hash = params.toString()");
+		expect(body).toContain("history.pushState");
+	});
+
 	it("renders JWK keyid tools", async () => {
 		const request = new Request(`${sampleURL}/debug`);
 		const response = await SELF.fetch(request);
@@ -143,6 +168,10 @@ describe("/debug endpoint", () => {
 			'Signature-Agent must be "<url>" or <label>="<url>"'
 		);
 		expect(body).toContain('parts.join("\\n")');
+		expect(body).toContain('warnings.push("signature has expired")');
+		expect(body).toContain(
+			'appendMessagesTo(signatureResult, "Warnings", verification.warnings)'
+		);
 	});
 });
 
