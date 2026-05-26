@@ -24,7 +24,7 @@ import {
 	signatureHeaders,
 	verify,
 } from "web-bot-auth";
-import { generateHTML } from "./html";
+import { generateDebugHTML, generateHTML } from "./html";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 import { Ed25519Signer } from "web-bot-auth/crypto";
 
@@ -371,11 +371,9 @@ export default {
 		const url = new URL(request.url);
 
 		if (url.pathname.startsWith("/debug")) {
-			return new Response(
-				[...request.headers]
-					.map(([key, value]) => `${key}: ${value}`)
-					.join("\n")
-			);
+			return new Response(generateDebugHTML(getTurnstileSiteKey(env)), {
+				headers: { "content-type": "text/html; charset=utf-8" },
+			});
 		}
 
 		if (url.pathname.startsWith("/v0/api/verify")) {
@@ -404,18 +402,17 @@ export default {
 		}
 
 		const status = await verifySignature(env, request);
-		const turnstileSiteKey = getTurnstileSiteKey(env);
 		switch (status) {
 			case SignatureValidationStatus.NEUTRAL:
-				return new Response(generateHTML(undefined, turnstileSiteKey), {
+				return new Response(generateHTML(undefined), {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 			case SignatureValidationStatus.VALID:
-				return new Response(generateHTML(true, turnstileSiteKey), {
+				return new Response(generateHTML(true), {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 			default:
-				return new Response(generateHTML(false, turnstileSiteKey), {
+				return new Response(generateHTML(false), {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 		}
