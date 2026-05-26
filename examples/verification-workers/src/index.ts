@@ -192,18 +192,20 @@ export default {
 
 		if (url.pathname.startsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {
 			const directory = await getExampleDirectory();
-
-			const signedHeaders = await directoryResponseHeaders(
-				request,
-				[await getSigner()],
-				{ created: new Date(), expires: new Date(Date.now() + 300_000) }
-			);
-			return new Response(JSON.stringify(directory), {
+			const response = new Response(JSON.stringify(directory), {
 				headers: {
-					...signedHeaders,
 					"content-type": MediaType.HTTP_MESSAGE_SIGNATURES_DIRECTORY,
 				},
 			});
+
+			const signedHeaders = await directoryResponseHeaders(
+				{ request, response },
+				[await getSigner()],
+				{ created: new Date(), expires: new Date(Date.now() + 300_000) }
+			);
+			response.headers.set("Signature", signedHeaders.Signature);
+			response.headers.set("Signature-Input", signedHeaders["Signature-Input"]);
+			return response;
 		}
 
 		const status = await verifySignature(env, request);

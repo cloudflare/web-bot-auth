@@ -18,6 +18,18 @@ function escapeAttribute(value: string): string {
 	return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 }
 
+function turnstileScript(siteKey: string): string {
+	return siteKey.length > 0
+		? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>'
+		: "";
+}
+
+function turnstileWidget(siteKey: string): string {
+	return siteKey.length > 0
+		? `<div class="cf-turnstile" data-sitekey="${escapeAttribute(siteKey)}"></div>`
+		: '<p class="text-muted">Turnstile is not configured for this deployment.</p>';
+}
+
 const debugStyle = `<style>
 form {
   padding: 1.5rem 3rem 3rem;
@@ -89,6 +101,14 @@ textarea {
 .validation-result li {
   margin-bottom: 0.25rem;
 }
+.validation-result pre {
+  border: 1px solid #999;
+  box-sizing: border-box;
+  margin-top: 0.75rem;
+  overflow-x: auto;
+  padding: 1rem;
+  white-space: pre-wrap;
+}
 @media (max-width: 640px) {
   .header-grid {
     grid-template-columns: 1fr;
@@ -106,7 +126,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Debug HTTP Message Signatures</title>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  ${turnstileScript(turnstileSiteKey)}
   ${theme}
   ${debugStyle}
 </head>
@@ -128,7 +148,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       <form id="directory-validator">
         <label for="directory-url">Directory URL</label>
         <input id="directory-url" name="url" type="url" placeholder="https://example.com/.well-known/http-message-signatures-directory" required />
-        <div class="cf-turnstile" data-sitekey="${escapeAttribute(turnstileSiteKey)}"></div>
+        ${turnstileWidget(turnstileSiteKey)}
         <button type="submit">Validate directory</button>
         <div id="directory-validation-result" class="validation-result" aria-live="polite"></div>
       </form>
@@ -168,7 +188,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
           <textarea id="signature-input-header" name="signature-input" placeholder='sig1=("@method" "@target-uri");created=...' required></textarea>
         </div>
 
-        <div class="cf-turnstile" data-sitekey="${escapeAttribute(turnstileSiteKey)}"></div>
+        ${turnstileWidget(turnstileSiteKey)}
 
         <button type="submit">Verify headers</button>
         <div id="signature-header-validation-result" class="validation-result" aria-live="polite"></div>
@@ -180,6 +200,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     const result = document.getElementById("directory-validation-result");
     const signatureForm = document.getElementById("signature-header-validator");
     const signatureResult = document.getElementById("signature-header-validation-result");
+    const signatureDirectoryURL = document.getElementById("signature-directory-url");
 
     const appendMessages = (heading, messages) => {
       if (messages.length === 0) {
@@ -244,6 +265,14 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       }
 
       return { errors, warnings: [] };
+    };
+
+    const appendDirectory = (directory) => {
+      const heading = document.createElement("p");
+      heading.textContent = "Fetched directory";
+      const output = document.createElement("pre");
+      output.textContent = JSON.stringify(directory, null, 2);
+      result.append(heading, output);
     };
 
     const base64ToBytes = (value) => {
@@ -318,7 +347,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     const buildSignedData = (parsed, request, headers) => {
       const parts = parsed.components.map((component) => '"' + component + '": ' + componentValue(component, request, headers));
       parts.push('"@signature-params": ' + parsed.input);
-      return parts.join("\n");
+      return parts.join("\\n");
     };
 
     const validateWebBotAuthParams = (params) => {
@@ -403,12 +432,17 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(form);
+      const directoryURL = data.get("url");
       result.textContent = "Checking directory...";
+      if (typeof directoryURL === "string") {
+        signatureDirectoryURL.value = directoryURL;
+      }
 
       try {
         const response = await fetch("/v0/api/proxy-directory", { method: "POST", body: data });
         const errors = [];
         const warnings = [];
+        let directory;
 
         if (!response.ok) {
           const body = await response.json();
@@ -420,7 +454,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
             warnings.push("Directory returned unexpected Content-Type " + (contentType || "none"));
           }
 
-          const directory = await response.json();
+          directory = await response.json();
           const shapeValidation = validateDirectory(directory);
           errors.push(...shapeValidation.errors);
           warnings.push(...shapeValidation.warnings);
@@ -441,6 +475,9 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
           appendMessages("Directory check failed", errors);
         }
         appendMessages("Warnings", warnings);
+        if (typeof directory !== "undefined") {
+          appendDirectory(directory);
+        }
       } catch {
         result.textContent = "Directory check failed.";
       } finally {

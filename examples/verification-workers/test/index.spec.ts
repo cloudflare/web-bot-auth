@@ -106,6 +106,9 @@ describe("/debug endpoint", () => {
 
 		expect(body).toContain("directory-validator");
 		expect(body).toContain("Validate key directory");
+		expect(body).toContain("Fetched directory");
+		expect(body).toContain("signatureDirectoryURL.value = directoryURL");
+		expect(body).not.toContain('data-sitekey=""');
 	});
 
 	it("renders signature header placeholders", async () => {
@@ -120,6 +123,24 @@ describe("/debug endpoint", () => {
 		expect(body).toContain("Signature");
 		expect(body).toContain("Signature-Agent");
 		expect(body).toContain("Signature-Input");
+		expect(body).toContain('parts.join("\\n")');
+	});
+});
+
+describe("/.well-known/http-message-signatures-directory endpoint", () => {
+	it("responds with a signed directory", async () => {
+		const request = new IncomingRequest(directoryURL);
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toEqual(200);
+		expect(response.headers.get("content-type")).toContain(
+			"application/http-message-signatures-directory+json"
+		);
+		expect(response.headers.get("Signature")).toBeTruthy();
+		expect(response.headers.get("Signature-Input")).toBeTruthy();
+		expect(await response.json()).toMatchObject({ purpose: "rag" });
 	});
 });
 
