@@ -14,6 +14,8 @@
 
 import { theme } from "./index-html";
 
+const directoryPath = "/.well-known/http-message-signatures-directory";
+
 function escapeAttribute(value: string): string {
 	return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
 }
@@ -79,6 +81,9 @@ textarea {
   grid-template-columns: 16rem minmax(0, 1fr);
   gap: 1rem 1.5rem;
   align-items: start;
+}
+.header-grid .field {
+  min-width: 0;
 }
 .header-grid label {
   font-weight: 600;
@@ -148,6 +153,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       <form id="directory-validator">
         <label for="directory-url">Directory URL</label>
         <input id="directory-url" name="url" type="url" placeholder="https://example.com/.well-known/http-message-signatures-directory" required />
+        <p class="text-muted">URL path must end with <code>${directoryPath}</code>.</p>
         ${turnstileWidget(turnstileSiteKey)}
         <button type="submit">Validate directory</button>
         <div id="directory-validation-result" class="validation-result" aria-live="polite"></div>
@@ -155,37 +161,63 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
     </div>
 
     <div class="debug-tool">
+      <h2>Get JWK keyid</h2>
+      <p>
+        Paste a JWK to compute its RFC 7638 SHA-256 thumbprint for use as <code>keyid</code>.
+      </p>
+      <form id="key-id-calculator">
+        <label for="key-id-jwk">JWK</label>
+        <textarea id="key-id-jwk" name="jwk" placeholder='{"kty":"OKP","crv":"Ed25519","x":"..."}' required></textarea>
+        <button type="submit">Get keyid</button>
+        <div id="key-id-result" class="validation-result" aria-live="polite"></div>
+      </form>
+    </div>
+
+    <div class="debug-tool">
       <h2>Verify request headers</h2>
       <p>
-        Paste the signed request target and HTTP Message Signature headers here.
+        Paste the signed request target, verification JWK, and HTTP Message Signature headers here.
       </p>
       <form id="signature-header-validator">
         <div class="header-grid">
-          <label for="signature-directory-url">Directory URL</label>
-          <input id="signature-directory-url" name="directory-url" type="url" placeholder="https://example.com/.well-known/http-message-signatures-directory" required />
+          <label for="signature-jwk">JWK</label>
+          <div class="field">
+            <textarea id="signature-jwk" name="jwk" placeholder='{"kty":"OKP","crv":"Ed25519","x":"..."}' required></textarea>
+          </div>
 
           <label for="signature-method">Method</label>
-          <select id="signature-method" name="method" required>
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PUT">PUT</option>
-            <option value="PATCH">PATCH</option>
-            <option value="DELETE">DELETE</option>
-            <option value="HEAD">HEAD</option>
-            <option value="OPTIONS">OPTIONS</option>
-          </select>
+          <div class="field">
+            <select id="signature-method" name="method" required>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+              <option value="HEAD">HEAD</option>
+              <option value="OPTIONS">OPTIONS</option>
+            </select>
+          </div>
 
           <label for="signature-url">URL</label>
-          <input id="signature-url" name="url" type="url" placeholder="https://example.com/resource" required />
+          <div class="field">
+            <input id="signature-url" name="url" type="url" placeholder="https://example.com/resource" required />
+          </div>
 
           <label for="signature-header">Signature</label>
-          <textarea id="signature-header" name="signature" placeholder="sig1=:..." required></textarea>
+          <div class="field">
+            <textarea id="signature-header" name="signature" placeholder="sig1=:..." required></textarea>
+          </div>
 
           <label for="signature-agent-header">Signature-Agent</label>
-          <textarea id="signature-agent-header" name="signature-agent" placeholder='"https://example.com"'></textarea>
+          <div class="field">
+            <textarea id="signature-agent-header" name="signature-agent" placeholder='"https://example.com"'></textarea>
+            <p class="text-muted">Accepted forms: <code>"&lt;url&gt;"</code> or <code>&lt;label&gt;="&lt;url&gt;"</code>.</p>
+          </div>
 
           <label for="signature-input-header">Signature-Input</label>
-          <textarea id="signature-input-header" name="signature-input" placeholder='sig1=("@method" "@target-uri");created=...' required></textarea>
+          <div class="field">
+            <textarea id="signature-input-header" name="signature-input" placeholder='sig1=("@method" "@target-uri");created=...' required></textarea>
+          </div>
         </div>
 
         ${turnstileWidget(turnstileSiteKey)}
@@ -198,11 +230,14 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
   <script>
     const form = document.getElementById("directory-validator");
     const result = document.getElementById("directory-validation-result");
+    const keyIDForm = document.getElementById("key-id-calculator");
+    const keyIDResult = document.getElementById("key-id-result");
+    const keyIDJWK = document.getElementById("key-id-jwk");
     const signatureForm = document.getElementById("signature-header-validator");
     const signatureResult = document.getElementById("signature-header-validation-result");
-    const signatureDirectoryURL = document.getElementById("signature-directory-url");
+    const signatureJWK = document.getElementById("signature-jwk");
 
-    const appendMessages = (heading, messages) => {
+    const appendMessagesTo = (target, heading, messages) => {
       if (messages.length === 0) {
         return;
       }
@@ -214,7 +249,43 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
         item.textContent = message;
         list.append(item);
       }
-      result.append(paragraph, list);
+      target.append(paragraph, list);
+    };
+
+    const appendMessages = (heading, messages) => {
+      appendMessagesTo(result, heading, messages);
+    };
+
+    const directoryURLValidation = (value) => {
+      try {
+        const url = new URL(value);
+        if (!url.pathname.endsWith("${directoryPath}")) {
+          return "Directory URL path must end with ${directoryPath}";
+        }
+      } catch {
+        return "Directory URL must be valid";
+      }
+
+      return undefined;
+    };
+
+    const signatureAgentValidation = (value) => {
+      if (value.trim() === "") {
+        return undefined;
+      }
+
+      const match = value.trim().match(/^(?:[a-z*][a-z0-9_.*-]*=)?"([^"]+)"$/);
+      if (!match) {
+        return 'Signature-Agent must be "<url>" or <label>="<url>"';
+      }
+
+      try {
+        new URL(match[1]);
+      } catch {
+        return "Signature-Agent must contain a valid URL";
+      }
+
+      return undefined;
     };
 
     const validateKeys = async (directory) => {
@@ -273,6 +344,60 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       const output = document.createElement("pre");
       output.textContent = JSON.stringify(directory, null, 2);
       result.append(heading, output);
+    };
+
+    const firstDirectoryKey = (directory) => {
+      if (directory === null || typeof directory !== "object" || !Array.isArray(directory.keys) || directory.keys.length === 0) {
+        return undefined;
+      }
+      const key = directory.keys[0];
+      return key !== null && typeof key === "object" ? key : undefined;
+    };
+
+    const fillJWK = (jwk) => {
+      const value = JSON.stringify(jwk, null, 2);
+      keyIDJWK.value = value;
+      signatureJWK.value = value;
+    };
+
+    const parseJWK = (value) => {
+      let jwk;
+      try {
+        jwk = JSON.parse(value);
+      } catch {
+        throw new Error("JWK must be valid JSON");
+      }
+      if (jwk === null || typeof jwk !== "object" || Array.isArray(jwk)) {
+        throw new Error("JWK must be a JSON object");
+      }
+      return jwk;
+    };
+
+    const jwkThumbprintInput = (jwk) => {
+      switch (jwk.kty) {
+        case "EC":
+          return { crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y };
+        case "OKP":
+          return { crv: jwk.crv, kty: jwk.kty, x: jwk.x };
+        case "RSA":
+          return { e: jwk.e, kty: jwk.kty, n: jwk.n };
+        default:
+          throw new Error("Unsupported JWK kty");
+      }
+    };
+
+    const bytesToBase64URL = (bytes) => {
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+      return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+    };
+
+    const computeJWKKeyID = async (jwk) => {
+      const input = JSON.stringify(jwkThumbprintInput(jwk));
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+      return bytesToBase64URL(new Uint8Array(digest));
     };
 
     const base64ToBytes = (value) => {
@@ -366,34 +491,19 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       }
     };
 
-    const directoryFromForm = async (data) => {
-      const request = new FormData();
-      request.append("url", data.get("directory-url"));
-      request.append("cf-turnstile-response", data.get("cf-turnstile-response"));
-      const response = await fetch("/v0/api/proxy-directory", { method: "POST", body: request });
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(body.error || "Directory fetch failed");
-      }
-      return response.json();
-    };
-
     const verifySignatureLocally = async (data) => {
-      const directory = await directoryFromForm(data);
-      const shapeValidation = validateDirectory(directory);
-      if (shapeValidation.errors.length > 0) {
-        throw new Error(shapeValidation.errors[0]);
+      const signatureAgentError = signatureAgentValidation(data.get("signature-agent") || "");
+      if (signatureAgentError !== undefined) {
+        throw new Error(signatureAgentError);
       }
-      const keyValidation = await validateKeys(directory);
-      if (keyValidation.errors.length > 0) {
-        throw new Error(keyValidation.errors[0]);
-      }
+
+      const key = parseJWK(data.get("jwk"));
+      const keyID = await computeJWKKeyID(key);
 
       const parsed = parseSignatureInputHeader(data.get("signature-input"));
       validateWebBotAuthParams(parsed.params);
-      const key = directory.keys.find((candidate) => candidate.kid === parsed.params.keyid);
-      if (!key) {
-        throw new Error("No directory key matches keyid");
+      if (parsed.params.keyid !== keyID) {
+        throw new Error("JWK keyid does not match Signature-Input keyid");
       }
 
       const url = new URL(data.get("url"));
@@ -408,6 +518,20 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       const cryptoKey = await crypto.subtle.importKey("jwk", key, { name: "Ed25519" }, true, ["verify"]);
       return crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, signature, new TextEncoder().encode(signedData));
     };
+
+    keyIDForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      keyIDResult.textContent = "Computing keyid...";
+
+      try {
+        const jwk = parseJWK(new FormData(keyIDForm).get("jwk"));
+        const keyID = await computeJWKKeyID(jwk);
+        keyIDResult.textContent = keyID;
+        signatureJWK.value = JSON.stringify(jwk, null, 2);
+      } catch (error) {
+        keyIDResult.textContent = "Keyid calculation failed: " + (error instanceof Error ? error.message : String(error));
+      }
+    });
 
     signatureForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -434,8 +558,12 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       const data = new FormData(form);
       const directoryURL = data.get("url");
       result.textContent = "Checking directory...";
-      if (typeof directoryURL === "string") {
-        signatureDirectoryURL.value = directoryURL;
+
+      const directoryError = directoryURLValidation(directoryURL);
+      if (directoryError !== undefined) {
+        result.replaceChildren();
+        appendMessages("Directory check failed", [directoryError]);
+        return;
       }
 
       try {
@@ -477,6 +605,10 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
         appendMessages("Warnings", warnings);
         if (typeof directory !== "undefined") {
           appendDirectory(directory);
+          const key = firstDirectoryKey(directory);
+          if (key !== undefined) {
+            fillJWK(key);
+          }
         }
       } catch {
         result.textContent = "Directory check failed.";
