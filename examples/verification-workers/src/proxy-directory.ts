@@ -94,8 +94,8 @@ function validateDirectoryURL(url: string): URL | string {
 	if (parsed.port !== "") {
 		return "Directory URL must not use a custom port";
 	}
-	if (parsed.pathname !== HTTP_MESSAGE_SIGNATURES_DIRECTORY) {
-		return `Directory URL path must be ${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`;
+	if (!parsed.pathname.endsWith(HTTP_MESSAGE_SIGNATURES_DIRECTORY)) {
+		return `Directory URL path must end with ${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`;
 	}
 
 	return parsed;

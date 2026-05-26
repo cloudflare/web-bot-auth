@@ -106,9 +106,23 @@ describe("/debug endpoint", () => {
 
 		expect(body).toContain("directory-validator");
 		expect(body).toContain("Validate key directory");
+		expect(body).toContain(
+			"URL path must end with <code>/.well-known/http-message-signatures-directory</code>"
+		);
 		expect(body).toContain("Fetched directory");
-		expect(body).toContain("signatureDirectoryURL.value = directoryURL");
+		expect(body).toContain("fillJWK(key)");
 		expect(body).not.toContain('data-sitekey=""');
+	});
+
+	it("renders JWK keyid tools", async () => {
+		const request = new Request(`${sampleURL}/debug`);
+		const response = await SELF.fetch(request);
+		const body = await response.text();
+
+		expect(body).toContain("Get JWK keyid");
+		expect(body).toContain("key-id-calculator");
+		expect(body).toContain("computeJWKKeyID");
+		expect(body).toContain("signatureJWK.value");
 	});
 
 	it("renders signature header placeholders", async () => {
@@ -117,12 +131,17 @@ describe("/debug endpoint", () => {
 		const body = await response.text();
 
 		expect(body).toContain("Verify request headers");
-		expect(body).toContain("Directory URL");
+		expect(body).toContain("signature-jwk");
+		expect(body).not.toContain("signature-directory-url");
 		expect(body).toContain("Method");
 		expect(body).toContain("URL");
 		expect(body).toContain("Signature");
 		expect(body).toContain("Signature-Agent");
 		expect(body).toContain("Signature-Input");
+		expect(body).toContain("Accepted forms:");
+		expect(body).toContain(
+			'Signature-Agent must be "<url>" or <label>="<url>"'
+		);
 		expect(body).toContain('parts.join("\\n")');
 	});
 });
@@ -215,6 +234,23 @@ describe("/v0/api/proxy-directory endpoint", () => {
 		expect(fetch).not.toHaveBeenCalled();
 		expect(await response.json()).toEqual({
 			error: "Directory URL must not use a custom port",
+		});
+	});
+
+	it("rejects target paths outside the directory endpoint", async () => {
+		const fetch = vi.fn();
+		vi.stubGlobal("fetch", fetch);
+
+		const response = await fetchValidator({
+			url: "https://example.com/.well-known/other",
+			"cf-turnstile-response": "token",
+		});
+
+		expect(response.status).toEqual(400);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await response.json()).toEqual({
+			error:
+				"Directory URL path must end with /.well-known/http-message-signatures-directory",
 		});
 	});
 
