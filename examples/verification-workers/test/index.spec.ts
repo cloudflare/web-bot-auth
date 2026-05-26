@@ -79,17 +79,47 @@ describe("/ endpoint", () => {
 		await waitOnExecutionContext(ctx);
 		expect(response.status).toEqual(200);
 	});
+
+	it("does not render the directory validator", async () => {
+		const request = new IncomingRequest(sampleURL);
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(await response.text()).not.toContain("directory-validator");
+	});
 });
 
 describe("/debug endpoint", () => {
-	it("responds with request headers", async () => {
-		const headers = { test: "this is a test header" };
-		const request = new Request(`${sampleURL}/debug`, { headers });
+	it("responds with HTML", async () => {
+		const request = new Request(`${sampleURL}/debug`);
 		const response = await SELF.fetch(request);
-		const headersString = Object.entries(headers)
-			.map(([k, v]) => `${k}: ${v}`)
-			.join("\n");
-		expect(await response.text()).toMatch(headersString);
+
+		expect(response.status).toEqual(200);
+		expect(response.headers.get("content-type")).toContain("text/html");
+	});
+
+	it("renders directory validation tools", async () => {
+		const request = new Request(`${sampleURL}/debug`);
+		const response = await SELF.fetch(request);
+		const body = await response.text();
+
+		expect(body).toContain("directory-validator");
+		expect(body).toContain("Validate key directory");
+	});
+
+	it("renders signature header placeholders", async () => {
+		const request = new Request(`${sampleURL}/debug`);
+		const response = await SELF.fetch(request);
+		const body = await response.text();
+
+		expect(body).toContain("Verify request headers");
+		expect(body).toContain("Directory URL");
+		expect(body).toContain("Method");
+		expect(body).toContain("URL");
+		expect(body).toContain("Signature");
+		expect(body).toContain("Signature-Agent");
+		expect(body).toContain("Signature-Input");
 	});
 });
 
