@@ -24,34 +24,14 @@ import {
 	signatureHeaders,
 	verify,
 } from "web-bot-auth";
-import { generateDebugHTML, generateHTML } from "./html";
+import { generateDebugHTML } from "./debug-html";
+import { invalidHTML, neutralHTML, validHTML } from "./index-html";
 import { proxyDirectoryRequest } from "./proxy-directory";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 import { Ed25519Signer } from "web-bot-auth/crypto";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function getProperty(value: unknown, name: string): unknown {
-	if (value === null || typeof value !== "object") {
-		return undefined;
-	}
-	for (const [key, property] of Object.entries(value)) {
-		if (key === name) {
-			return property;
-		}
-	}
-	return undefined;
-}
-
-function getStringProperty(value: unknown, name: string): string | undefined {
-	const property = getProperty(value, name);
-	return typeof property === "string" ? property : undefined;
-}
-
-function getTurnstileSiteKey(env: Env): string {
-	return getStringProperty(env, "TURNSTILE_SITE_KEY") ?? "";
 }
 
 async function getExampleDirectory(): Promise<Directory> {
@@ -196,7 +176,7 @@ export default {
 		const url = new URL(request.url);
 
 		if (url.pathname.startsWith("/debug")) {
-			return new Response(generateDebugHTML(getTurnstileSiteKey(env)), {
+			return new Response(generateDebugHTML(env.TURNSTILE_SITE_KEY ?? ""), {
 				headers: { "content-type": "text/html; charset=utf-8" },
 			});
 		}
@@ -229,15 +209,15 @@ export default {
 		const status = await verifySignature(env, request);
 		switch (status) {
 			case SignatureValidationStatus.NEUTRAL:
-				return new Response(generateHTML(undefined), {
+				return new Response(neutralHTML, {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 			case SignatureValidationStatus.VALID:
-				return new Response(generateHTML(true), {
+				return new Response(validHTML, {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 			default:
-				return new Response(generateHTML(false), {
+				return new Response(invalidHTML, {
 					headers: { "content-type": "text/html; charset=utf-8" },
 				});
 		}
