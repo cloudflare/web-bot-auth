@@ -5,7 +5,7 @@
 
 [Caddy plugin](https://caddyserver.com/docs/extending-caddy) extending Caddy configuration to allow for validation of web-bot-auth as defined in [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
 
-## Tables of Content
+## Table of Contents
 
 - [Features](#features)
 - [Usage](#usage)
@@ -17,7 +17,10 @@
 This is an example plugin and only supports Ed25519. You can find a test key in [Appendix B.1.4 of RFC 9421](https://datatracker.ietf.org/doc/html/rfc9421#name-example-ed25519-test-key).
 
 - `httpsig` configuration hook
-- Parse HTTP Message Signatures directory
+- Load keys from a direct HTTP Message Signatures directory with `directory_base`
+- Load keys from registry signature-agent cards with `registry`
+- Load multiple inline keys, or multiple keys from `jwks_uri`
+- Load IP allowlists from `ips_uri` as defined in [draft-illyes-webbotauth-jafar-00](https://datatracker.ietf.org/doc/html/draft-illyes-webbotauth-jafar-00)
 - Block request without a valid signature
 
 ## Usage
@@ -41,6 +44,8 @@ And finally, you run caddy
 ```
 
 To generate a signed request, you can use the sibling [browser extension](../browser-extension).
+
+`directory_base` is the direct directory mode. `registry` is experimental registry draft support and can be repeated. `fail_on_load_error` defaults to `false`; set it to `true` if Caddy should fail provisioning when directories, registries, cards, IP lists, or keys cannot be loaded.
 
 ## Security Considerations
 

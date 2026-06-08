@@ -4,6 +4,9 @@
         httpsig {
             # This domain should have /.well-known/http-message-signatures-directory defined
             directory_base http-message-signatures-example.research.cloudflare.com
+            # Experimental registry draft support. Add more registry lines to trust more cards.
+            registry https://http-message-signatures-example.research.cloudflare.com/test-registry.txt
+            fail_on_load_error false
         }
         
         # Responds if signature is valid
