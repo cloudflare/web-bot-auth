@@ -211,3 +211,9 @@ export function verify<T>(
 export interface Directory extends httpsig.Directory {
   purpose: string;
 }
+
+export {
+  parseRegistry,
+  parseSignatureAgentCard,
+  type SignatureAgentCard,
+} from "./registry";
