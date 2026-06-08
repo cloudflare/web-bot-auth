@@ -3,10 +3,11 @@
 // Runtime types generated with workerd@1.20250508.0 2025-04-06
 declare namespace Cloudflare {
 	interface Env {
-		SIGNATURE_AGENT: "http-message-signatures-example.research.cloudflare.com";
-		TARGET_URL: "https://http-message-signatures-example.research.cloudflare.com/debug";
+		SIGNATURE_AGENT: "https://http-message-signatures-example.research.cloudflare.com";
+		TARGET_URL: "https://research.cloudflare.com/web-bot-auth-test/0.0.1";
 		TURNSTILE_SECRET_KEY: string;
 		TURNSTILE_SITE_KEY: string;
+		ASSETS: Fetcher;
 	}
 }
 interface Env extends Cloudflare.Env {}

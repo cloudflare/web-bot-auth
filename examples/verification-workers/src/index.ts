@@ -17,10 +17,13 @@ import {
 	HTTP_MESSAGE_SIGNATURES_DIRECTORY,
 	MediaType,
 	Signer,
+	SignatureAgentCard,
 	VerificationParams,
 	directoryResponseHeaders,
 	helpers,
 	jwkToKeyID,
+	parseRegistry,
+	parseSignatureAgentCard,
 	signatureHeaders,
 	verify,
 } from "web-bot-auth";
@@ -50,6 +53,34 @@ async function getExampleDirectory(): Promise<Directory> {
 		keys: [key],
 		purpose: "rag",
 	};
+}
+
+function signatureAgentOrigin(env: Env): string {
+	return new URL(env.SIGNATURE_AGENT).origin;
+}
+
+function getSignatureAgentCard(env: Env): SignatureAgentCard {
+	const origin = signatureAgentOrigin(env);
+	return parseSignatureAgentCard({
+		client_name: "Example Bot",
+		client_uri: origin,
+		logo_uri: `${origin}/favicon.png`,
+		contacts: [],
+		"expected-user-agent": "Mozilla/5.0 ExampleBot",
+		"rfc9309-product-token": "ExampleBot",
+		"rfc9309-compliance": ["User-Agent", "Allow", "Disallow", "Content-Usage"],
+		trigger: "fetcher",
+		purpose: "example",
+		"rate-control": "429",
+		jwks_uri: `${origin}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`,
+		ips_uri: `${origin}/ips.json`,
+	});
+}
+
+function registryResponse(env: Env): Response {
+	const registry = `${signatureAgentOrigin(env)}/signature-agent-card\n`;
+	parseRegistry(registry);
+	return new Response(registry, { headers: { "content-type": "text/plain" } });
 }
 
 async function fetchDirectory(signatureAgent: string): Promise<Directory> {
@@ -206,6 +237,18 @@ export default {
 			response.headers.set("Signature", signedHeaders.Signature);
 			response.headers.set("Signature-Input", signedHeaders["Signature-Input"]);
 			return response;
+		}
+
+		if (url.pathname === "/signature-agent-card") {
+			return Response.json(getSignatureAgentCard(env));
+		}
+
+		if (url.pathname === "/test-registry.txt") {
+			return registryResponse(env);
+		}
+
+		if (url.pathname === "/ips.json") {
+			return env.ASSETS.fetch(request);
 		}
 
 		const status = await verifySignature(env, request);

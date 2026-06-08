@@ -20,4 +20,8 @@
 		"SIGNATURE_AGENT": "https://http-message-signatures-example.research.cloudflare.com",
 		"TARGET_URL": "https://research.cloudflare.com/web-bot-auth-test/0.0.1",
 	},
+	"assets": {
+		"directory": "./assets",
+		"binding": "ASSETS",
+	},
 }
