@@ -22,60 +22,114 @@ import (
 	"net/http"
 	"time"
 
+	sfv "github.com/dunglas/httpsfv"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/remitly-oss/httpsig-go"
 	"github.com/remitly-oss/httpsig-go/keyman"
 )
 
 type SignatureValidator struct {
-	Verifier *httpsig.Verifier
+	keys httpsig.KeyFetcher
 }
 
-func NewValidator(keyData []byte) (*SignatureValidator, error) {
+type keySpecs map[string]httpsig.KeySpec
+
+func (ks keySpecs) addJWK(keyData []byte) (string, error) {
+	keySpec, err := keySpecFromJWK(keyData)
+	if err != nil {
+		return "", err
+	}
+	if _, exists := ks[keySpec.KeyID]; exists {
+		return keySpec.KeyID, nil
+	}
+	ks[keySpec.KeyID] = keySpec
+	return keySpec.KeyID, nil
+}
+
+func keySpecFromJWK(keyData []byte) (httpsig.KeySpec, error) {
 	pubKey, err := jwk.ParseKey(keyData)
 	if err != nil {
-		return nil, fmt.Errorf("parsing public key: %w", err)
+		return httpsig.KeySpec{}, fmt.Errorf("parsing public key: %w", err)
 	}
 
 	thumbprint, err := pubKey.Thumbprint(crypto.SHA256)
 	if err != nil {
-		return nil, fmt.Errorf("cannot generate key id from key: %w", err)
+		return httpsig.KeySpec{}, fmt.Errorf("cannot generate key id from key: %w", err)
 	}
-	keyid := base64.RawURLEncoding.EncodeToString(thumbprint)
-	pk, _ := jwk.PublicRawKeyOf(pubKey)
+	keyID := base64.RawURLEncoding.EncodeToString(thumbprint)
+	publicKey, err := jwk.PublicRawKeyOf(pubKey)
+	if err != nil {
+		return httpsig.KeySpec{}, fmt.Errorf("extracting public key: %w", err)
+	}
 
-	kf := keyman.NewKeyFetchInMemory(map[string]httpsig.KeySpec{
-		keyid: {
-			KeyID:  keyid,
-			Algo:   httpsig.Algo_ED25519,
-			PubKey: pk,
-		},
-	})
+	return httpsig.KeySpec{
+		KeyID:  keyID,
+		Algo:   httpsig.Algo_ED25519,
+		PubKey: publicKey,
+	}, nil
+}
 
-	verifier, err := httpsig.NewVerifier(kf, httpsig.VerifyProfile{
+func NewValidator(keys keySpecs) (*SignatureValidator, error) {
+	if len(keys) == 0 {
+		return nil, errors.New("no signature keys loaded")
+	}
+
+	return &SignatureValidator{keys: keyman.NewKeyFetchInMemory(keys)}, nil
+}
+
+func verifyProfile(label string) httpsig.VerifyProfile {
+	return httpsig.VerifyProfile{
 		AllowedAlgorithms:    []httpsig.Algorithm{httpsig.Algo_ED25519},
 		RequiredFields:       httpsig.Fields("@authority"),
 		RequiredMetadata:     httpsig.DefaultVerifyProfile.RequiredMetadata,
 		DisallowedMetadata:   []httpsig.Metadata{},
 		CreatedValidDuration: time.Minute * 5, // Signatures must have been created within the last 5 minutes
 		ExpiredSkew:          time.Minute,     // If the created parameter is present, the Date header cannot be more than a minute off.
-	})
-	if err != nil {
-		return nil, fmt.Errorf("creating verifier: %w", err)
+		SignatureLabel:       label,
 	}
-
-	return &SignatureValidator{Verifier: verifier}, nil
 }
 
-func (v *SignatureValidator) Validate(r *http.Request) error {
-	result, err := v.Verifier.Verify(r)
+func signatureLabels(r *http.Request) ([]string, error) {
+	signatureInput := r.Header.Get("Signature-Input")
+	if signatureInput == "" {
+		return nil, errors.New("missing signature-input header")
+	}
+	dictionary, err := sfv.UnmarshalDictionary([]string{signatureInput})
 	if err != nil {
-		return err
+		return nil, err
 	}
+	return dictionary.Names(), nil
+}
 
-	if !result.Verified {
-		return errors.New("request not signed or signature is invalid")
+func (v *SignatureValidator) Validate(r *http.Request) (string, error) {
+	labels, err := signatureLabels(r)
+	if err != nil {
+		return "", err
 	}
+	var lastErr error
+	for _, label := range labels {
+		verifier, err := httpsig.NewVerifier(v.keys, verifyProfile(label))
+		if err != nil {
+			return "", fmt.Errorf("creating verifier: %w", err)
+		}
+		result, err := verifier.Verify(r)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !result.Verified {
+			lastErr = errors.New("request not signed or signature is invalid")
+			continue
+		}
 
-	return nil
+		keyID, err := result.KeyID()
+		if err != nil {
+			return "", err
+		}
+		return keyID, nil
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", errors.New("request not signed or signature is invalid")
 }
