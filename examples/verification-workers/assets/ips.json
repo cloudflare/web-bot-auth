@@ -1,0 +1,72 @@
+{
+	"$schema": "https://raw.githubusercontent.com/thibmeu/jafar/refs/tags/draft-illyes-webbotauth-jafar-00/schema.json",
+	"creationTime": "2026-04-25T20:00:00Z",
+	"prefixes": [
+		{
+			"ipv4Prefix": "173.245.48.0/20"
+		},
+		{
+			"ipv4Prefix": "103.21.244.0/22"
+		},
+		{
+			"ipv4Prefix": "103.22.200.0/22"
+		},
+		{
+			"ipv4Prefix": "103.31.4.0/22"
+		},
+		{
+			"ipv4Prefix": "141.101.64.0/18"
+		},
+		{
+			"ipv4Prefix": "108.162.192.0/18"
+		},
+		{
+			"ipv4Prefix": "190.93.240.0/20"
+		},
+		{
+			"ipv4Prefix": "188.114.96.0/20"
+		},
+		{
+			"ipv4Prefix": "197.234.240.0/22"
+		},
+		{
+			"ipv4Prefix": "198.41.128.0/17"
+		},
+		{
+			"ipv4Prefix": "162.158.0.0/15"
+		},
+		{
+			"ipv4Prefix": "104.16.0.0/13"
+		},
+		{
+			"ipv4Prefix": "104.24.0.0/14"
+		},
+		{
+			"ipv4Prefix": "172.64.0.0/13"
+		},
+		{
+			"ipv4Prefix": "131.0.72.0/22"
+		},
+		{
+			"ipv6Prefix": "2400:cb00::/32"
+		},
+		{
+			"ipv6Prefix": "2606:4700::/32"
+		},
+		{
+			"ipv6Prefix": "2803:f800::/32"
+		},
+		{
+			"ipv6Prefix": "2405:b500::/32"
+		},
+		{
+			"ipv6Prefix": "2405:8100::/32"
+		},
+		{
+			"ipv6Prefix": "2a06:98c0::/29"
+		},
+		{
+			"ipv6Prefix": "2c0f:f248::/32"
+		}
+	]
+}

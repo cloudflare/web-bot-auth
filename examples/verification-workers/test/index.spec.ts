@@ -27,6 +27,7 @@ import worker from "../src/index";
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 const sampleURL = "https://example.com";
+const signatureAgentOrigin = new URL(env.SIGNATURE_AGENT).origin;
 const proxyURL = `${sampleURL}/v0/api/proxy-directory`;
 const directoryURL = `${sampleURL}/.well-known/http-message-signatures-directory`;
 const turnstileVerifyURL =
@@ -189,6 +190,32 @@ describe("/.well-known/http-message-signatures-directory endpoint", () => {
 		expect(response.headers.get("Signature")).toBeTruthy();
 		expect(response.headers.get("Signature-Input")).toBeTruthy();
 		expect(await response.json()).toMatchObject({ purpose: "rag" });
+	});
+});
+
+describe("registry draft endpoints", () => {
+	it("serves a signature-agent card", async () => {
+		const response = await SELF.fetch(`${sampleURL}/signature-agent-card`);
+
+		expect(response.status).toEqual(200);
+		expect(response.headers.get("content-type")).toContain("application/json");
+		expect(await response.json()).toMatchObject({
+			jwks_uri: `${signatureAgentOrigin}/.well-known/http-message-signatures-directory`,
+			ips_uri: `${signatureAgentOrigin}/ips.json`,
+		});
+	});
+
+	it("serves a test registry", async () => {
+		const response = await SELF.fetch(`${sampleURL}/test-registry.txt`);
+
+		expect(response.status).toEqual(200);
+		expect(await response.text()).toContain("/signature-agent-card");
+	});
+
+	it("serves a JAFAR IP list", async () => {
+		const response = await SELF.fetch(`${sampleURL}/ips.json`);
+
+		expect(response.status).toEqual(200);
 	});
 });
 
