@@ -1,0 +1,61 @@
+[
+  {
+    "name": "jwks-uri-card",
+    "url": "https://example.com/bot",
+    "valid": true,
+    "card": {
+      "client_id": "https://example.com/bot",
+      "client_name": "Example Bot",
+      "contacts": ["mailto:bot-support@example.com"],
+      "jwks_uri": "https://example.com/.well-known/http-message-signatures-directory",
+      "web_bot_auth": {
+        "expected-user-agent": "Mozilla/5.0 ExampleBot",
+        "rfc9309-product-token": "ExampleBot",
+        "trigger": "fetcher",
+        "purpose": "tdm",
+        "ips_uri": "https://example.com/ips.json"
+      }
+    }
+  },
+  {
+    "name": "jwks-card",
+    "url": "https://example.com/bot",
+    "valid": true,
+    "card": {
+      "client_id": "https://example.com/bot",
+      "client_name": "Example Bot",
+      "jwks": {
+        "keys": [
+          {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "jwks-and-jwks-uri",
+    "url": "https://example.com/bot",
+    "valid": false,
+    "error": "card must not contain both jwks and jwks_uri",
+    "card": {
+      "client_id": "https://example.com/bot",
+      "jwks_uri": "https://example.com/jwks.json",
+      "jwks": {
+        "keys": []
+      }
+    }
+  },
+  {
+    "name": "client-id-mismatch",
+    "url": "https://example.com/bot",
+    "valid": false,
+    "error": "client_id must match the card URL",
+    "card": {
+      "client_id": "https://example.com/other",
+      "jwks_uri": "https://example.com/jwks.json"
+    }
+  }
+]
