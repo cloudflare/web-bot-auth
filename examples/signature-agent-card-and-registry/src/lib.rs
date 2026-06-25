@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 use web_bot_auth::{
     components::{CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParametersSet},
-    keyring::{Algorithm, Thumbprintable},
+    keyring::{Algorithm, JSONWebKeySet, Thumbprintable},
     message_signatures::{MessageSigner, UnsignedMessage},
 };
 use worker::*;
@@ -18,7 +18,8 @@ const README: &str = r#"
 on the same authority: a Cloudflare worker.
 <h2>Instructions</h2>
 <ol>
-    <li>Navigate to <a href="/.well-known/http-message-signatures-directory"><code>/.well-known/http-message-signatures-directory</code></a> to view a generated Signature Agent card on demand.</li>
+    <li>Navigate to <a href="/signature-agent-card"><code>/signature-agent-card</code></a> to view a generated Signature Agent card.</li>
+    <li>Navigate to <a href="/.well-known/http-message-signatures-directory"><code>/.well-known/http-message-signatures-directory</code></a> to view generated key material.</li>
     <li>Navigate to <a href="/registry.txt"><code>/registry.txt</code></a> to view a generated registry linking to that Signature Agent card.</li>
 </ol>
 <h3>Customize</h3>
@@ -28,9 +29,17 @@ This will automatically populate your registry with multiple, unique entries.
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct SignatureAgentCard {
+    client_id: String,
     client_name: String,
     contacts: Vec<String>,
-    keys: Vec<Thumbprintable>,
+    jwks_uri: String,
+    web_bot_auth: WebBotAuthMetadata,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+struct WebBotAuthMetadata {
+    trigger: String,
+    purpose: String,
 }
 
 struct SignatureHeaderGenerator<'a> {
@@ -91,7 +100,7 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
                     .into_iter()
                     .map(|key| {
                         format!(
-                            "{}://{}/.well-known/http-message-signatures-directory",
+                            "{}://{}/signature-agent-card",
                             scheme.clone(),
                             key.name.clone()
                         )
@@ -99,6 +108,31 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
                     .collect::<Vec<String>>()
                     .join("\n"),
             )
+        }
+        "/signature-agent-card" => {
+            let scheme = req
+                .uri()
+                .scheme_str()
+                .ok_or(worker::Error::RouteNoDataError)?
+                .to_string();
+            let origin = format!("{}://{}", scheme, authority);
+            let card = SignatureAgentCard {
+                client_id: format!("{origin}/signature-agent-card"),
+                client_name: authority.to_string(),
+                contacts: vec!["mailto:test@example.com".to_string()],
+                jwks_uri: format!("{origin}/.well-known/http-message-signatures-directory"),
+                web_bot_auth: WebBotAuthMetadata {
+                    trigger: "fetcher".to_string(),
+                    purpose: "example".to_string(),
+                },
+            };
+            let body = serde_json::to_string(&card)
+                .map_err(|e| worker::Error::RustError(e.to_string()))?;
+            let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
+            response
+                .headers_mut()
+                .set("content-type", "application/json")?;
+            Ok(response)
         }
         "/.well-known/http-message-signatures-directory" => {
             let mut rng = rand::rngs::OsRng;
@@ -126,13 +160,11 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             };
             let thumbprint = thumbprintable.b64_thumbprint();
 
-            let card = SignatureAgentCard {
-                client_name: authority.to_string(),
-                contacts: vec!["test@example.com".to_string()],
+            let jwks = JSONWebKeySet {
                 keys: vec![thumbprintable],
             };
 
-            let body = serde_json::to_string(&card)
+            let body = serde_json::to_string(&jwks)
                 .map_err(|e| worker::Error::RustError(e.to_string()))?;
             let mut hasher = Sha256::new();
             hasher.update(&body);

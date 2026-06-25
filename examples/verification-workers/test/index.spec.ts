@@ -165,9 +165,7 @@ describe("/debug endpoint", () => {
 		expect(body).toContain("Signature-Agent");
 		expect(body).toContain("Signature-Input");
 		expect(body).toContain("Accepted forms:");
-		expect(body).toContain(
-			'Signature-Agent must be "<url>" or <label>="<url>"'
-		);
+		expect(body).toContain('&lt;label&gt;="&lt;url&gt;";type=directory');
 		expect(body).toContain('parts.join("\\n")');
 		expect(body).toContain('warnings.push("signature has expired")');
 		expect(body).toContain(
