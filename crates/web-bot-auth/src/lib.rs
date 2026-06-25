@@ -25,11 +25,15 @@ pub mod keyring;
 /// Implementation of HTTP Message Signatures
 pub mod message_signatures;
 
+/// Parsers for Signature-Agent, registry, and Signature Agent Card data.
+pub mod registry;
+
 use data_url::DataUrl;
 
 use components::{CoveredComponent, HTTPField, HTTPFieldParameters};
 use keyring::{Algorithm, JSONWebKeySet, KeyRing};
 use message_signatures::{MessageVerifier, ParsedLabel, SignatureTiming, SignedMessage};
+use registry::{SignatureAgentDiscoveryType, parse_signature_agent_header};
 
 /// Errors that may be thrown by this module.
 #[derive(Debug)]
@@ -151,8 +155,14 @@ pub struct WebBotAuthVerifier {
 pub enum SignatureAgentLink {
     /// A data URL that was parsed into a JSON Web Key Set ahead of time.
     Inline(JSONWebKeySet),
-    /// An external https:// or http:// URL that requires resolution into a JSON Web Key Set
-    External(String),
+    /// A directory origin to resolve at the well-known path.
+    Directory(String),
+    /// A direct JWK Set URI.
+    JwksUri(String),
+    /// A Client ID Metadata Document URI.
+    Cimd(String),
+    /// Legacy sf-string syntax for a directory origin.
+    LegacyDirectory(String),
 }
 
 impl WebBotAuthVerifier {
@@ -210,13 +220,28 @@ impl WebBotAuthVerifier {
             }
         }
 
-        let parse_link = |link: &sfv::StringRef| {
-            let link_str = link.as_str();
+        let parse_link = |link_str: &str, discovery_type: &SignatureAgentDiscoveryType, legacy| {
             if link_str.starts_with("https://") || link_str.starts_with("http://") {
-                return Some(SignatureAgentLink::External(String::from(link_str)));
+                return Some(match discovery_type {
+                    SignatureAgentDiscoveryType::Directory => {
+                        if legacy {
+                            SignatureAgentLink::LegacyDirectory(String::from(link_str))
+                        } else {
+                            SignatureAgentLink::Directory(String::from(link_str))
+                        }
+                    }
+                    SignatureAgentDiscoveryType::JwksUri => {
+                        SignatureAgentLink::JwksUri(String::from(link_str))
+                    }
+                    SignatureAgentDiscoveryType::Cimd => {
+                        SignatureAgentLink::Cimd(String::from(link_str))
+                    }
+                });
             }
 
-            if let Ok(url) = DataUrl::process(link_str) {
+            if *discovery_type == SignatureAgentDiscoveryType::Directory
+                && let Ok(url) = DataUrl::process(link_str)
+            {
                 let mediatype = url.mime_type();
                 if mediatype.type_ == "application"
                     && mediatype.subtype == "http-message-signatures-directory"
@@ -233,41 +258,47 @@ impl WebBotAuthVerifier {
         let parsed_directories = match signature_agent_key {
             Some(key) => signature_agents
                 .iter()
-                .filter_map(|header| sfv::Parser::new(header).parse_dictionary().ok())
-                .reduce(|mut acc, sig_agent| {
-                    acc.extend(sig_agent);
-                    acc
-                })
-                .ok_or(ImplementationError::ParsingError(
-                    "Failed to parse `Signature-Agent` into valid sfv::Dictionary".to_string(),
-                ))?
-                .into_iter()
-                .filter_map(|(label, listentry)| match listentry {
-                    sfv::ListEntry::Item(item) => Some((label, item)),
-                    sfv::ListEntry::InnerList(_) => None,
-                })
-                .filter_map(|(label, item)| {
-                    if label.as_str() != key {
-                        return None;
-                    }
-                    let as_string = item.bare_item.as_string();
-                    as_string.and_then(parse_link)
-                })
-                .collect(),
-            None => signature_agents
-                .iter()
                 .map(|header| {
-                    sfv::Parser::new(header).parse_item().map_err(|e| {
+                    parse_signature_agent_header(header).map_err(|error| {
                         ImplementationError::ParsingError(format!(
-                            "Failed to parse `Signature-Agent` into valid sfv::Item: {e}"
+                            "Failed to parse `Signature-Agent`: {error}"
                         ))
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .iter()
-                .flat_map(|item| {
-                    let as_string = item.bare_item.as_string();
-                    as_string.and_then(parse_link)
+                .flat_map(|header| {
+                    header
+                        .entries()
+                        .iter()
+                        .filter_map(|entry| {
+                            if entry.label == key {
+                                parse_link(&entry.uri, &entry.discovery_type, false)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
+            None => signature_agents
+                .iter()
+                .map(|header| {
+                    parse_signature_agent_header(header).map_err(|error| {
+                        ImplementationError::ParsingError(format!(
+                            "Failed to parse `Signature-Agent`: {error}"
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .flat_map(|header| {
+                    let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
+                    header
+                        .entries()
+                        .iter()
+                        .filter_map(|entry| parse_link(&entry.uri, &entry.discovery_type, legacy))
+                        .collect::<Vec<_>>()
                 })
                 .collect(),
         };
@@ -532,6 +563,39 @@ mod tests {
     }
 
     #[test]
+    fn test_malformed_signature_agents_are_rejected() {
+        struct MalformedSignatureAgentTestVector {}
+
+        impl SignedMessage for MalformedSignatureAgentTestVector {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec!["sig1=:3q7S1TtbrFhQhpcZ1gZwHPCFHTvdKXNY1xngkp6lyaqqqv3QZupwpu/wQG5a7qybnrj2vZYMeVKuWepm+rNkDw==:".to_owned()];
+                        }
+
+                        if name == "signature-input" {
+                            return vec![r#"sig1=("@authority" "signature-agent";key="agent1");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749331474;expires=1749331484"#.to_owned()];
+                        }
+
+                        if name == "signature-agent" {
+                            return vec![String::from("not a structured field")];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        let test = MalformedSignatureAgentTestVector {};
+        WebBotAuthVerifier::parse(&test).expect_err("This should not have parsed");
+    }
+
+    #[test]
     fn test_signature_agents_are_parsed_with_fallback() {
         struct StandardTestVector {}
 
@@ -580,7 +644,7 @@ mod tests {
         assert_eq!(verifier.get_signature_agents().len(), 2);
         assert_eq!(
             verifier.get_signature_agents()[0],
-            SignatureAgentLink::External("https://myexample.com".to_string())
+            SignatureAgentLink::LegacyDirectory("https://myexample.com".to_string())
         );
     }
 
@@ -634,7 +698,7 @@ mod tests {
         assert_eq!(verifier.get_signature_agents().len(), 1);
         assert_eq!(
             verifier.get_signature_agents()[0],
-            SignatureAgentLink::External("https://myexample.com".to_string())
+            SignatureAgentLink::Directory("https://myexample.com".to_string())
         );
     }
 }
