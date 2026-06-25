@@ -1,0 +1,35 @@
+[
+  {
+    "name": "directory-default",
+    "header": "sig1=\"https://signature-agent.test\"",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test",
+        "type": "directory"
+      }
+    ]
+  },
+  {
+    "name": "jwks-uri",
+    "header": "sig1=\"https://signature-agent.test/jwks.json\";type=jwks_uri",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test/jwks.json",
+        "type": "jwks_uri"
+      }
+    ]
+  },
+  {
+    "name": "cimd",
+    "header": "sig1=\"https://signature-agent.test/card\";type=cimd",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test/card",
+        "type": "cimd"
+      }
+    ]
+  }
+]

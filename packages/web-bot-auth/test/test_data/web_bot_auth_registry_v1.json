@@ -1,15 +1,15 @@
 [
   {
-    "registry_txt": "https://example.com/.well-known/signature-agent-card",
-    "signature_agent_cards": [
-      "https://example.com/.well-known/signature-agent-card"
-    ]
+    "name": "single-card",
+    "registry_txt": "https://example.com/bot\n",
+    "signature_agent_cards": ["https://example.com/bot"]
   },
   {
-    "registry_txt": "https://bot1.example.com/.well-known/signature-agent-card\nhttps://bot2.example.com/.well-known/signature-agent-card",
+    "name": "comments-and-blank-lines",
+    "registry_txt": "# bots\nhttps://bot1.example.com/card # primary\n\nhttps://bot2.example.com/card\n",
     "signature_agent_cards": [
-      "https://bot1.example.com/.well-known/signature-agent-card",
-      "https://bot2.example.com/.well-known/signature-agent-card"
+      "https://bot1.example.com/card",
+      "https://bot2.example.com/card"
     ]
   }
 ]
