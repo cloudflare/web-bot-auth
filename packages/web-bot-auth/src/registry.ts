@@ -1,8 +1,33 @@
-export interface SignatureAgentCard {
-  client_name?: string;
-  client_uri?: string;
-  logo_uri?: string;
-  contacts?: string[];
+import { parseDictionary, parseItem } from "structured-headers";
+
+export const LEGACY_SIGNATURE_AGENT_WARNING =
+  "legacy Signature-Agent sf-string syntax is deprecated; use sf-dictionary";
+
+export type SignatureAgentDiscoveryType = "directory" | "jwks_uri" | "cimd";
+
+export interface SignatureAgentEntry {
+  label: string;
+  uri: string;
+  type: SignatureAgentDiscoveryType;
+}
+
+export type SignatureAgentHeader =
+  | {
+      kind: "current";
+      entries: SignatureAgentEntry[];
+      warnings: string[];
+    }
+  | {
+      kind: "legacy";
+      entries: SignatureAgentEntry[];
+      warnings: string[];
+    };
+
+export interface JSONWebKeySet {
+  keys: JsonWebKey[];
+}
+
+export interface WebBotAuthMetadata {
   "expected-user-agent"?: string;
   "rfc9309-product-token"?: string;
   "rfc9309-compliance"?: string[];
@@ -12,26 +37,50 @@ export interface SignatureAgentCard {
   "rate-control"?: string;
   "rate-expectation"?: string;
   "known-urls"?: string[];
-  jwks_uri?: string;
   ips_uri?: string;
-  keys?: unknown[];
+}
+
+export interface SignatureAgentCard {
+  client_id?: string;
+  client_name?: string;
+  client_uri?: string;
+  logo_uri?: string;
+  contacts?: string[];
+  jwks_uri?: string;
+  jwks?: JSONWebKeySet;
+  ips_uri?: string;
+  web_bot_auth?: WebBotAuthMetadata;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function stringValue(value: unknown, field: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${field} must be a string`);
+  }
+  return value;
+}
+
 function stringArray(value: unknown, field: string): string[] | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (
-    !Array.isArray(value) ||
-    !value.every((entry) => typeof entry === "string")
-  ) {
+  if (!Array.isArray(value)) {
     throw new Error(`${field} must be an array of strings`);
   }
-  return value;
+  const output: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      throw new Error(`${field} must be an array of strings`);
+    }
+    output.push(entry);
+  }
+  return output;
 }
 
 function uriArray(value: unknown, field: string): string[] | undefined {
@@ -45,51 +94,115 @@ function uriArray(value: unknown, field: string): string[] | undefined {
   return values;
 }
 
-function stringValue(value: unknown, field: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new Error(`${field} must be a string`);
-  }
-  return value;
-}
-
 function urlValue(
   value: unknown,
   field: string,
-  allowedSchemes: string[]
+  allowedProtocols: string[]
 ): string | undefined {
   const parsed = stringValue(value, field);
   if (parsed === undefined) {
     return undefined;
   }
   const url = new URL(parsed);
-  if (!allowedSchemes.includes(url.protocol.slice(0, -1))) {
-    throw new Error(`${field} must use one of: ${allowedSchemes.join(", ")}`);
+  if (!allowedProtocols.includes(url.protocol)) {
+    throw new Error(`${field} must use one of: ${allowedProtocols.join(", ")}`);
   }
   return parsed;
 }
 
-function clientURIValue(value: unknown): string | undefined {
-  const parsed = stringValue(value, "client_uri");
+function jwksValue(value: unknown): JSONWebKeySet | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value) || !Array.isArray(value.keys)) {
+    throw new Error("jwks must be a JWK Set");
+  }
+  const keys: JsonWebKey[] = [];
+  for (const key of value.keys) {
+    if (!isRecord(key)) {
+      throw new Error("jwks keys must be objects");
+    }
+    keys.push(key);
+  }
+  return { keys };
+}
+
+function triggerValue(value: unknown): "fetcher" | "crawler" | undefined {
+  const parsed = stringValue(value, "trigger");
   if (parsed === undefined) {
     return undefined;
   }
-  const url = new URL(parsed);
-  if (url.protocol === "data:") {
-    if (
-      !parsed.startsWith("data:text/plain,") &&
-      !parsed.startsWith("data:text/plain;")
-    ) {
-      throw new Error("client_uri data URL must use text/plain");
-    }
+  if (parsed === "fetcher" || parsed === "crawler") {
     return parsed;
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("client_uri must use one of: http, https, data:text/plain");
+  throw new Error("trigger must be fetcher or crawler");
+}
+
+function discoveryType(value: unknown): SignatureAgentDiscoveryType {
+  const typeName = value === undefined ? "directory" : String(value);
+  if (typeName === "directory") {
+    return "directory";
   }
-  return parsed;
+  if (typeName === "jwks_uri" || typeName === "cimd") {
+    return typeName;
+  }
+  throw new Error(`unsupported Signature-Agent type ${typeName}`);
+}
+
+function validateDiscoveryURI(uri: string, type: SignatureAgentDiscoveryType) {
+  const url = new URL(uri);
+  if (type === "directory") {
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return;
+    }
+    throw new Error("directory Signature-Agent must use http or https");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error(`${type} Signature-Agent must use https`);
+  }
+}
+
+export function parseSignatureAgentHeader(
+  header: string
+): SignatureAgentHeader {
+  try {
+    const dictionary = parseDictionary(header);
+    if (dictionary.size === 0) {
+      throw new Error("Signature-Agent header must not be empty");
+    }
+    const entries: SignatureAgentEntry[] = [];
+    for (const [label, value] of dictionary) {
+      const [uri, params] = value;
+      if (typeof uri !== "string") {
+        throw new Error("Signature-Agent values must be strings");
+      }
+      const type = discoveryType(params.get("type"));
+      validateDiscoveryURI(uri, type);
+      entries.push({ label, uri, type });
+    }
+    return { kind: "current", entries, warnings: [] };
+  } catch (dictionaryError) {
+    try {
+      const [uri] = parseItem(header);
+      if (typeof uri !== "string") {
+        throw new Error("legacy Signature-Agent must be a string");
+      }
+      validateDiscoveryURI(uri, "directory");
+      return {
+        kind: "legacy",
+        entries: [{ label: "", uri, type: "directory" }],
+        warnings: [LEGACY_SIGNATURE_AGENT_WARNING],
+      };
+    } catch (itemError) {
+      throw new Error(
+        `failed to parse Signature-Agent header: ${errorMessage(dictionaryError)}; ${errorMessage(itemError)}`
+      );
+    }
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function stripRegistryComment(line: string): string {
@@ -104,12 +217,6 @@ function stripRegistryComment(line: string): string {
   return line.trim();
 }
 
-/**
- * Parse a draft-meunier-webbotauth-registry-02 registry.
- *
- * This implementation intentionally supports only HTTP(S) card URLs. Inline
- * data: cards are not supported by this package.
- */
 export function parseRegistry(registry: string): URL[] {
   const entries: URL[] = [];
   for (const [index, rawLine] of registry.split(/\r\n|\n|\r/).entries()) {
@@ -117,82 +224,105 @@ export function parseRegistry(registry: string): URL[] {
     if (line === "") {
       continue;
     }
-
-    let url: URL;
-    try {
-      url = new URL(line);
-    } catch (error) {
-      throw new Error(`registry line ${index + 1} is not a URL`, {
-        cause: error,
-      });
+    const url = new URL(line);
+    if (url.protocol === "data:") {
+      throw new Error("inline signature agent cards are not supported");
     }
-
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error(`registry line ${index + 1} uses unsupported scheme`);
+    if (url.protocol !== "https:") {
+      throw new Error(
+        `registry line ${index + 1}: registry entries must use https`
+      );
     }
     entries.push(url);
   }
   return entries;
 }
 
-export function parseSignatureAgentCard(input: unknown): SignatureAgentCard {
+function webBotAuthValue(value: unknown): WebBotAuthMetadata | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error("web_bot_auth must be an object");
+  }
+  const metadata: WebBotAuthMetadata = {
+    "expected-user-agent": stringValue(
+      value["expected-user-agent"],
+      "expected-user-agent"
+    ),
+    "rfc9309-product-token": stringValue(
+      value["rfc9309-product-token"],
+      "rfc9309-product-token"
+    ),
+    "rfc9309-compliance": stringArray(
+      value["rfc9309-compliance"],
+      "rfc9309-compliance"
+    ),
+    trigger: triggerValue(value.trigger),
+    purpose: stringValue(value.purpose, "purpose"),
+    "targeted-content": stringValue(
+      value["targeted-content"],
+      "targeted-content"
+    ),
+    "rate-control": stringValue(value["rate-control"], "rate-control"),
+    "rate-expectation": stringValue(
+      value["rate-expectation"],
+      "rate-expectation"
+    ),
+    "known-urls": stringArray(value["known-urls"], "known-urls"),
+    ips_uri: urlValue(value.ips_uri, "ips_uri", ["https:"]),
+  };
+  return Object.fromEntries(
+    Object.entries(metadata).filter((entry) => entry[1] !== undefined)
+  );
+}
+
+export function parseSignatureAgentCard(
+  input: unknown,
+  cardURL?: string
+): SignatureAgentCard {
   if (!isRecord(input)) {
     throw new Error("signature agent card must be an object");
   }
-  if (Object.keys(input).length === 0) {
+
+  const card: SignatureAgentCard = {
+    client_id: urlValue(input.client_id, "client_id", ["https:"]),
+    client_name: stringValue(input.client_name, "client_name"),
+    client_uri: urlValue(input.client_uri, "client_uri", ["http:", "https:"]),
+    logo_uri: urlValue(input.logo_uri, "logo_uri", [
+      "http:",
+      "https:",
+      "data:",
+    ]),
+    contacts: uriArray(input.contacts, "contacts"),
+    jwks_uri: urlValue(input.jwks_uri, "jwks_uri", ["https:"]),
+    jwks: jwksValue(input.jwks),
+    ips_uri: urlValue(input.ips_uri, "ips_uri", ["https:"]),
+    web_bot_auth: webBotAuthValue(input.web_bot_auth),
+  };
+
+  if (card.jwks !== undefined && card.jwks_uri !== undefined) {
+    throw new Error("card must not contain both jwks and jwks_uri");
+  }
+  if (card.jwks === undefined && card.jwks_uri === undefined) {
+    throw new Error("card must contain either jwks or jwks_uri");
+  }
+  if (cardURL !== undefined && card.client_id === undefined) {
+    throw new Error("client_id is required when card URL is known");
+  }
+  if (
+    cardURL !== undefined &&
+    card.client_id !== undefined &&
+    card.client_id !== cardURL
+  ) {
+    throw new Error("client_id must match the card URL");
+  }
+
+  const output = Object.fromEntries(
+    Object.entries(card).filter((entry) => entry[1] !== undefined)
+  );
+  if (Object.keys(output).length === 0) {
     throw new Error("signature agent card must contain at least one parameter");
   }
-
-  const card: SignatureAgentCard = {};
-  card.client_name = stringValue(input.client_name, "client_name");
-  card.client_uri = clientURIValue(input.client_uri);
-  card.logo_uri = urlValue(input.logo_uri, "logo_uri", [
-    "http",
-    "https",
-    "data",
-  ]);
-  card.contacts = uriArray(input.contacts, "contacts");
-  card["expected-user-agent"] = stringValue(
-    input["expected-user-agent"],
-    "expected-user-agent"
-  );
-  card["rfc9309-product-token"] = stringValue(
-    input["rfc9309-product-token"],
-    "rfc9309-product-token"
-  );
-  card["rfc9309-compliance"] = stringArray(
-    input["rfc9309-compliance"],
-    "rfc9309-compliance"
-  );
-
-  const trigger = stringValue(input.trigger, "trigger");
-  if (trigger !== undefined) {
-    if (trigger !== "fetcher" && trigger !== "crawler") {
-      throw new Error("trigger must be fetcher or crawler");
-    }
-    card.trigger = trigger;
-  }
-
-  card.purpose = stringValue(input.purpose, "purpose");
-  card["targeted-content"] = stringValue(
-    input["targeted-content"],
-    "targeted-content"
-  );
-  card["rate-control"] = stringValue(input["rate-control"], "rate-control");
-  card["rate-expectation"] = stringValue(
-    input["rate-expectation"],
-    "rate-expectation"
-  );
-  card["known-urls"] = stringArray(input["known-urls"], "known-urls");
-  card.jwks_uri = urlValue(input.jwks_uri, "jwks_uri", ["https"]);
-  card.ips_uri = urlValue(input.ips_uri, "ips_uri", ["https"]);
-
-  if (input.keys !== undefined) {
-    if (!Array.isArray(input.keys)) {
-      throw new Error("keys must be an array");
-    }
-    card.keys = input.keys;
-  }
-
-  return card;
+  return output;
 }

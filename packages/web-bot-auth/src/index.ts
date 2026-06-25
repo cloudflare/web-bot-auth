@@ -213,7 +213,14 @@ export interface Directory extends httpsig.Directory {
 }
 
 export {
+  LEGACY_SIGNATURE_AGENT_WARNING,
   parseRegistry,
   parseSignatureAgentCard,
+  parseSignatureAgentHeader,
+  type JSONWebKeySet,
   type SignatureAgentCard,
+  type SignatureAgentDiscoveryType,
+  type SignatureAgentEntry,
+  type SignatureAgentHeader,
+  type WebBotAuthMetadata,
 } from "./registry";
