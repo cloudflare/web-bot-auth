@@ -224,7 +224,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
           <label for="signature-agent-header">Signature-Agent</label>
           <div class="field">
             <textarea id="signature-agent-header" name="signature-agent" placeholder='"https://example.com"'></textarea>
-            <p class="text-muted">Accepted forms: <code>"&lt;url&gt;"</code> or <code>&lt;label&gt;="&lt;url&gt;"</code>.</p>
+            <p class="text-muted">Accepted forms: <code>&lt;label&gt;="&lt;url&gt;";type=directory</code>, <code>type=jwks_uri</code>, <code>type=cimd</code>, or legacy <code>"&lt;url&gt;"</code>.</p>
           </div>
 
           <label for="signature-input-header">Signature-Input</label>
@@ -371,9 +371,9 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
         return undefined;
       }
 
-      const match = value.trim().match(/^(?:[a-z*][a-z0-9_.*-]*=)?"([^"]+)"$/);
+      const match = value.trim().match(/^(?:[a-z*][a-z0-9_.*-]*=)?"([^"]+)"(?:;type=(?:directory|jwks_uri|cimd))?$/);
       if (!match) {
-        return 'Signature-Agent must be "<url>" or <label>="<url>"';
+        return 'Signature-Agent must be "<url>" or <label>="<url>" with optional type';
       }
 
       try {
@@ -524,8 +524,13 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       }
 
       const components = [];
-      for (const component of match[2].matchAll(/"([^"]+)"/g)) {
-        components.push(component[1].toLowerCase());
+      for (const component of match[2].matchAll(/"([^"]+)"((?:;[a-z*][a-z0-9_.*-]*(?:=(?:"[^"]*"|[^; ]+))?)*)/g)) {
+        const params = {};
+        for (const parameter of component[2].matchAll(/;([^=; ]+)(?:=("[^"]*"|[^; ]+))?/g)) {
+          const rawValue = parameter[2];
+          params[parameter[1]] = rawValue === undefined ? true : rawValue.startsWith('"') ? rawValue.slice(1, -1) : rawValue;
+        }
+        components.push({ name: component[1].toLowerCase(), params });
       }
       if (components.length === 0) {
         throw new Error("Signature-Input must contain at least one component");
@@ -542,8 +547,20 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
       return { key: match[1], components, params, input: header.replace(/^[^=]+=/, "") };
     };
 
+    const dictionaryMemberValue = (header, key) => {
+      const prefix = key + '="';
+      for (const member of header.split(",")) {
+        const trimmed = member.trim();
+        if (trimmed.startsWith(prefix)) {
+          const end = trimmed.indexOf('"', prefix.length);
+          return end === -1 ? "" : trimmed.slice(prefix.length, end);
+        }
+      }
+      return "";
+    };
+
     const componentValue = (component, request, headers) => {
-      switch (component) {
+      switch (component.name) {
         case "@method":
           return request.method.toUpperCase();
         case "@target-uri":
@@ -561,13 +578,22 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
           return request.url.pathname;
         case "@query":
           return request.url.search;
+        case "signature-agent":
+          return component.params.key === undefined
+            ? headers[component.name] || ""
+            : dictionaryMemberValue(headers[component.name] || "", component.params.key);
         default:
-          return headers[component] || "";
+          return headers[component.name] || "";
       }
     };
 
     const buildSignedData = (parsed, request, headers) => {
-      const parts = parsed.components.map((component) => '"' + component + '": ' + componentValue(component, request, headers));
+      const parts = parsed.components.map((component) => {
+        const params = Object.entries(component.params)
+          .map(([name, value]) => value === true ? ";" + name : ";" + name + '="' + value + '"')
+          .join("");
+        return '"' + component.name + '"' + params + ": " + componentValue(component, request, headers);
+      });
       parts.push('"@signature-params": ' + parsed.input);
       return parts.join("\\n");
     };

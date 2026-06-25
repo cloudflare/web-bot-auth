@@ -3,6 +3,7 @@ import {
   signatureHeadersSync,
   helpers,
   jwkToKeyID,
+  recommendedComponents,
 } from "web-bot-auth";
 import _sodium from "libsodium-wrappers";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
@@ -14,6 +15,8 @@ jwkToKeyID(jwk, helpers.WEBCRYPTO_SHA256, helpers.BASE64URL_DECODE).then(
 );
 
 const MAX_AGE_IN_MS = 1000 * 60 * 60; // 1 hour
+const SIGNATURE_AGENT =
+  "https://http-message-signatures-example.research.cloudflare.com";
 
 class Ed25519Signer {
   public alg: Algorithm = "ed25519";
@@ -52,6 +55,11 @@ class Ed25519Signer {
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   function (details) {
+    details.requestHeaders?.push({
+      name: "Signature-Agent",
+      value: `sig1="${SIGNATURE_AGENT}";type=directory`,
+    });
+
     const request = new Request(details.url, {
       method: details.method,
       // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
@@ -59,6 +67,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     });
     const now = new Date();
     const headers = signatureHeadersSync(request, new Ed25519Signer(jwk), {
+      components: recommendedComponents("sig1"),
       created: now,
       expires: new Date(now.getTime() + MAX_AGE_IN_MS),
     });
