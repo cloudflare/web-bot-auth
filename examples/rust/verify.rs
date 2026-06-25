@@ -71,7 +71,7 @@ fn main() {
     for url in verifier.get_signature_agents().iter() {
         assert_eq!(
             url,
-            &SignatureAgentLink::External("https://myexample.com".into())
+            &SignatureAgentLink::Directory("https://myexample.com".into())
         )
     }
     // Since the expiry date is in the past.
