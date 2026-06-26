@@ -1,8 +1,5 @@
 import { parseDictionary, parseItem } from "structured-headers";
 
-export const LEGACY_SIGNATURE_AGENT_WARNING =
-  "legacy Signature-Agent sf-string syntax is deprecated; use sf-dictionary";
-
 export type SignatureAgentDiscoveryType = "directory" | "jwks_uri" | "cimd";
 
 export interface SignatureAgentEntry {
@@ -15,12 +12,10 @@ export type SignatureAgentHeader =
   | {
       kind: "current";
       entries: SignatureAgentEntry[];
-      warnings: string[];
     }
   | {
       kind: "legacy";
       entries: SignatureAgentEntry[];
-      warnings: string[];
     };
 
 export interface JSONWebKeySet {
@@ -180,7 +175,7 @@ export function parseSignatureAgentHeader(
       validateDiscoveryURI(uri, type);
       entries.push({ label, uri, type });
     }
-    return { kind: "current", entries, warnings: [] };
+    return { kind: "current", entries };
   } catch (dictionaryError) {
     try {
       const [uri] = parseItem(header);
@@ -191,7 +186,6 @@ export function parseSignatureAgentHeader(
       return {
         kind: "legacy",
         entries: [{ label: "", uri, type: "directory" }],
-        warnings: [LEGACY_SIGNATURE_AGENT_WARNING],
       };
     } catch (itemError) {
       throw new Error(

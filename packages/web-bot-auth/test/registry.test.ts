@@ -15,7 +15,6 @@ describe.each(signatureAgentVectors)("Signature-Agent $name", (vector) => {
 
     expect(result.kind).toBe("current");
     expect(result.entries).toEqual(vector.entries);
-    expect(result.warnings).toEqual([]);
   });
 });
 
@@ -34,9 +33,6 @@ describe("Signature-Agent invalid syntax", () => {
             uri: "https://signature-agent.test",
             type: "directory",
           },
-        ],
-        warnings: [
-          "legacy Signature-Agent sf-string syntax is deprecated; use sf-dictionary",
         ],
       }
     );

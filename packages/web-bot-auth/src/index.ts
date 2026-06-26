@@ -213,7 +213,6 @@ export interface Directory extends httpsig.Directory {
 }
 
 export {
-  LEGACY_SIGNATURE_AGENT_WARNING,
   parseRegistry,
   parseSignatureAgentCard,
   parseSignatureAgentHeader,
