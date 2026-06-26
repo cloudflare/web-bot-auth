@@ -54,7 +54,7 @@ fn main() {
         0xd1, 0xbb,
     ];
     let mut keyring = KeyRing::default();
-    // sample keyid pulled from https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/
+    // sample keyid pulled from https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/
     keyring.import_raw(
         "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
         Algorithm::Ed25519,

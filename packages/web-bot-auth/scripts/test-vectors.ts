@@ -1,4 +1,4 @@
-/// This script generates test vectors for https://datatracker.ietf.org/doc/draft-meunier-http-message-signatures-directory/
+/// This script generates test vectors for https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-directory/
 /// and https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/
 /// The vectors are generated in JSON format
 ///

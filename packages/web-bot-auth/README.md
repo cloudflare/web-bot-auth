@@ -5,9 +5,9 @@
 
 [npm]: https://www.npmjs.com/package/web-bot-auth
 
-Web Bot Authentication defined by [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
+TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/).
 
-## Tables of Content
+## Table of Contents
 
 - [Features](#features)
 - [Usage](#usage)
@@ -18,11 +18,12 @@ Web Bot Authentication defined by [draft-meunier-web-bot-auth-architecture](http
 
 - JWK Thumbprint pre-compute
 - JWK Thumbprint when passing a hash and encoding function
+- `Signature-Agent`, registry, and Signature Agent Card parsers
 - TypeScript types
 
 ## Usage
 
-This section provides examples usage for signing and verifying web-bot-auth material.
+This section shows basic signing and verification.
 More concrete examples are provided on [cloudflareresearch/web-bot-auth/examples](https://github.com/cloudflareresearch/web-bot-auth#examples).
 
 ### Research server for debug purposes
@@ -32,11 +33,13 @@ To help debug `web-both-auth` HTTPS requests, Cloudflare Research provides a tes
 ### Signing
 
 ```typescript
-import { signatureHeaders } from "web-bot-auth";
+import { recommendedComponents, signatureHeaders } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 
-// The following simple request is going to be signed
-const request = new Request("https://example.com");
+const signatureAgent = 'sig1="https://signature-agent.test";type=directory';
+const request = new Request("https://example.com", {
+  headers: { "Signature-Agent": signatureAgent },
+});
 
 // This is a testing-only private key/public key pair described in RFC 9421 Appendix B.1.4
 // Also available at https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
@@ -54,6 +57,7 @@ const headers = await signatureHeaders(
   await signerFromJWK(RFC_9421_ED25519_TEST_KEY),
   {
     created: now,
+    components: recommendedComponents("sig1"),
     expires: new Date(now.getTime() + 300_000), // now + 5 min
   }
 );
@@ -62,6 +66,7 @@ const headers = await signatureHeaders(
 const signedRequest = new Request("https://example.com", {
   headers: {
     Signature: headers["Signature"],
+    "Signature-Agent": signatureAgent,
     "Signature-Input": headers["Signature-Input"],
   },
 });
@@ -85,6 +90,7 @@ const RFC_9421_ED25519_TEST_KEY = {
 const signedRequest = new Request("https://example.com", {
   headers: {
     Signature: headers["Signature"],
+    "Signature-Agent": signatureAgent,
     "Signature-Input": headers["Signature-Input"],
   },
 });

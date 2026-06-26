@@ -3,7 +3,7 @@
 ![GitHub License](https://img.shields.io/github/license/cloudflareresearch/web-bot-auth)
 ![GitHub Release](https://img.shields.io/github/v/release/cloudflareresearch/web-bot-auth)
 
-Chrome browser extension adding HTTP Message Signature on all outgoing requests as defined by [RFC 9421](https://datatracker.ietf.org/doc/html/rfc9421). Specification is in [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
+Chrome browser extension adding HTTP Message Signature on all outgoing requests as defined by [RFC 9421](https://datatracker.ietf.org/doc/html/rfc9421). Specification is in [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/).
 
 ## Tables of Content
 

@@ -5,7 +5,7 @@
 
 [crates.io]: https://crates.io/crates/http-signature-directory
 
-A command-line tool to validate an HTTP message signatures directory per [the HTTP Message Signatures directory draft](https://www.ietf.org/archive/id/draft-meunier-http-message-signatures-directory-00.html).
+A command-line tool to validate an HTTP message signatures directory per [draft-meunier-webbotauth-httpsig-directory-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-directory/00/).
 
 This is an opinionated validator:
 
