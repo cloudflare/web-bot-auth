@@ -83,19 +83,14 @@ impl SignatureAgentHeader {
     }
 }
 
-impl Iterator for SignatureAgentHeader {
+impl IntoIterator for SignatureAgentHeader {
     type Item = SignatureAgentEntry;
+    type IntoIter = std::vec::IntoIter<SignatureAgentEntry>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn into_iter(self) -> Self::IntoIter {
         match self {
             SignatureAgentHeader::Current { entries }
-            | SignatureAgentHeader::Legacy { entries } => {
-                if entries.is_empty() {
-                    None
-                } else {
-                    Some(entries.remove(0))
-                }
-            }
+            | SignatureAgentHeader::Legacy { entries } => entries.into_iter(),
         }
     }
 }
