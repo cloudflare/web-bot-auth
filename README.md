@@ -2,10 +2,9 @@
 
 ![GitHub License](https://img.shields.io/github/license/cloudflareresearch/web-bot-auth)
 
-Repository presenting authentication for orchestrated agents navigating the web.
-It implements all components required by Web Bot Authentication defined by [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html), and presents [examples](#examples).
+This repo contains Web Bot Auth libraries and examples for signed automated HTTP traffic, as described in [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/).
 
-## Tables of Content
+## Table of Contents
 
 - [Examples](#examples)
 - [Development](#development)
@@ -18,11 +17,11 @@ It implements all components required by Web Bot Authentication defined by [draf
 
 Cloudflare Research provides a live environment at [http-message-signatures-example.research.cloudflare.com](https://http-message-signatures-example.research.cloudflare.com/).
 
-This deployment allows to test your implementation.
+Use this deployment to test an implementation.
 
 1. It validates the presence of a `Signature` header signed [RFC9421 ed25519 test key](./examples/rfc9421-keys/ed25519.pem),
 2. It exposes a bot directory on [/.well-known/http-message-signatures-directory](https://http-message-signatures-example.research.cloudflare.com/.well-known/http-message-signatures-directory),
-3. It provides explanation about the protocol.
+3. It serves debug tools for request signatures, JWK key IDs, and directories.
 
 ### Signing
 
@@ -41,9 +40,9 @@ This deployment allows to test your implementation.
 
 ### HTTP Signature Directories
 
-| Example                                                            | Description                                                    |
-| :----------------------------------------------------------------- | :------------------------------------------------------------- |
-| [Cloudflare Workers](./examples/signature-agent-card-and-registry) | Host a signature directory on Cloudflare Workers, using the [signature agent card and registry](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/) format |
+| Example                                                            | Description                                                                           |
+| :----------------------------------------------------------------- | :------------------------------------------------------------------------------------ |
+| [Cloudflare Workers](./examples/signature-agent-card-and-registry) | Host a registry, Signature Agent Card, and signed key directory on Cloudflare Workers |
 
 ## Development
 
@@ -53,8 +52,8 @@ This repository uses [npm](https://docs.npmjs.com/cli/v11/using-npm/workspaces) 
 | :------------------------------------------------------------- | :--------- | :------------------------------------------------------------------------------------- |
 | [http-message-sig](./packages/http-message-sig/)               | TypeScript | HTTP Message Signatures as defined in RFC 9421                                         |
 | [jsonwebkey-thumbprint](./packages/jsonwebkey-thumbprint/)     | TypeScript | JWK Thumbprint as defined in RFC 7638                                                  |
-| [web-bot-auth](./packages/web-bot-auth/)                       | TypeScript | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
-| [web-bot-auth](./crates/web-bot-auth/)                         | Rust       | HTTP Message Signatures for Bots as defined in draft-meunier-web-bot-auth-architecture |
+| [web-bot-auth](./packages/web-bot-auth/)                       | TypeScript | HTTP Message Signatures for Bots as defined in [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/) |
+| [web-bot-auth](./crates/web-bot-auth/)                         | Rust       | HTTP Message Signatures for Bots as defined in [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/) |
 | [http-signature-directory](./crates/http-signature-directory/) | Rust       | Validates whether an HTTP message signature directory is correctly signed and valid    |
 
 ## Security Considerations

@@ -5,9 +5,9 @@
 
 [crates.io]: https://crates.io/crates/web-bot-auth
 
-A pure Rust implementation of [web-bot-auth](https://github.com/cloudflare/web-bot-auth) as defined by [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
+A pure Rust implementation of [web-bot-auth](https://github.com/cloudflare/web-bot-auth) as defined by [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/).
 
-## Tables of Content
+## Table of Contents
 
 - [Features](#features)
 - [Usage](#usage)
@@ -18,6 +18,7 @@ A pure Rust implementation of [web-bot-auth](https://github.com/cloudflare/web-b
 
 - Plug-and-play HTTP message signature support: generate and verify signatures for any arbitrary HTTP message, independent of framework or library, by implementing the traits `UnsignedMessage` / `SignedMessage`.
 - Out-of-the-box support for verifying and generating secure `web-bot-auth` signatures specifically.
+- Parsers for `Signature-Agent`, registry files, and Signature Agent Cards.
 
 ## Usage
 

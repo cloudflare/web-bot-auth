@@ -3,7 +3,7 @@
 ![GitHub License](https://img.shields.io/github/license/cloudflareresearch/web-bot-auth)
 ![GitHub Release](https://img.shields.io/github/v/release/cloudflareresearch/web-bot-auth)
 
-[Caddy plugin](https://caddyserver.com/docs/extending-caddy) extending Caddy configuration to allow for validation of web-bot-auth as defined in [draft-meunier-web-bot-auth-architecture](https://thibmeu.github.io/http-message-signatures-directory/draft-meunier-web-bot-auth-architecture.html).
+[Caddy plugin](https://caddyserver.com/docs/extending-caddy) extending Caddy configuration to allow for validation of web-bot-auth as defined in [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/).
 
 ## Table of Contents
 
