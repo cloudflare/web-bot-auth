@@ -268,7 +268,7 @@ impl WebBotAuthVerifier {
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .flat_map(|header| {
-                    header.filter_map(|entry| {
+                    header.into_iter().filter_map(|entry| {
                         if entry.label == key {
                             parse_link(&entry.uri, &entry.discovery_type, false)
                         } else {
@@ -290,7 +290,7 @@ impl WebBotAuthVerifier {
                 .into_iter()
                 .flat_map(|header| {
                     let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
-                    header.filter_map(move |entry| {
+                    header.into_iter().filter_map(move |entry| {
                         parse_link(&entry.uri, &entry.discovery_type, legacy)
                     })
                 })
