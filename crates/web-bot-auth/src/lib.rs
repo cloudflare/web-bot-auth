@@ -266,19 +266,15 @@ impl WebBotAuthVerifier {
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?
-                .iter()
+                .into_iter()
                 .flat_map(|header| {
-                    header
-                        .entries()
-                        .iter()
-                        .filter_map(|entry| {
-                            if entry.label == key {
-                                parse_link(&entry.uri, &entry.discovery_type, false)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
+                    header.filter_map(|entry| {
+                        if entry.label == key {
+                            parse_link(&entry.uri, &entry.discovery_type, false)
+                        } else {
+                            None
+                        }
+                    })
                 })
                 .collect(),
             None => signature_agents
@@ -291,14 +287,12 @@ impl WebBotAuthVerifier {
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?
-                .iter()
+                .into_iter()
                 .flat_map(|header| {
                     let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
-                    header
-                        .entries()
-                        .iter()
-                        .filter_map(|entry| parse_link(&entry.uri, &entry.discovery_type, legacy))
-                        .collect::<Vec<_>>()
+                    header.filter_map(move |entry| {
+                        parse_link(&entry.uri, &entry.discovery_type, legacy)
+                    })
                 })
                 .collect(),
         };
@@ -593,6 +587,57 @@ mod tests {
 
         let test = MalformedSignatureAgentTestVector {};
         WebBotAuthVerifier::parse(&test).expect_err("This should not have parsed");
+    }
+
+    #[test]
+    fn test_signature_agent_discovery_types_are_parsed() {
+        struct DiscoveryTypeTestVector {
+            signature_agent: &'static str,
+        }
+
+        impl SignedMessage for DiscoveryTypeTestVector {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec!["sig1=:3q7S1TtbrFhQhpcZ1gZwHPCFHTvdKXNY1xngkp6lyaqqqv3QZupwpu/wQG5a7qybnrj2vZYMeVKuWepm+rNkDw==:".to_owned()];
+                        }
+
+                        if name == "signature-input" {
+                            return vec![r#"sig1=("@authority" "signature-agent";key="agent1");alg="ed25519";keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1749331474;expires=1749331484"#.to_owned()];
+                        }
+
+                        if name == "signature-agent" {
+                            return vec![self.signature_agent.to_owned()];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        for (signature_agent, expected) in [
+            (
+                r#"agent1="https://directory.example";type=directory"#,
+                SignatureAgentLink::Directory("https://directory.example".to_string()),
+            ),
+            (
+                r#"agent1="https://directory.example/jwks.json";type=jwks_uri"#,
+                SignatureAgentLink::JwksUri("https://directory.example/jwks.json".to_string()),
+            ),
+            (
+                r#"agent1="https://directory.example/card";type=cimd"#,
+                SignatureAgentLink::Cimd("https://directory.example/card".to_string()),
+            ),
+        ] {
+            let test = DiscoveryTypeTestVector { signature_agent };
+            let verifier = WebBotAuthVerifier::parse(&test).unwrap();
+            assert_eq!(verifier.get_signature_agents(), &vec![expected]);
+        }
     }
 
     #[test]

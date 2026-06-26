@@ -2,10 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::keyring::JSONWebKeySet;
 
-/// Warning returned when the legacy `Signature-Agent` item form is used.
-pub const LEGACY_SIGNATURE_AGENT_WARNING: &str =
-    "legacy Signature-Agent sf-string syntax is deprecated; use sf-dictionary";
-
 /// Errors returned while parsing registry-related documents and headers.
 #[derive(Debug)]
 pub enum RegistryError {
@@ -68,15 +64,11 @@ pub enum SignatureAgentHeader {
     Current {
         /// Parsed entries.
         entries: Vec<SignatureAgentEntry>,
-        /// Parser warnings.
-        warnings: Vec<String>,
     },
     /// Legacy sf-item syntax.
     Legacy {
         /// Parsed entries.
         entries: Vec<SignatureAgentEntry>,
-        /// Parser warnings.
-        warnings: Vec<String>,
     },
 }
 
@@ -89,13 +81,21 @@ impl SignatureAgentHeader {
             | SignatureAgentHeader::Legacy { entries, .. } => entries,
         }
     }
+}
 
-    /// Returns parser warnings.
-    #[must_use]
-    pub fn warnings(&self) -> &[String] {
+impl Iterator for SignatureAgentHeader {
+    type Item = SignatureAgentEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
         match self {
-            SignatureAgentHeader::Current { warnings, .. }
-            | SignatureAgentHeader::Legacy { warnings, .. } => warnings,
+            SignatureAgentHeader::Current { entries }
+            | SignatureAgentHeader::Legacy { entries } => {
+                if entries.is_empty() {
+                    None
+                } else {
+                    Some(entries.remove(0))
+                }
+            }
         }
     }
 }
@@ -267,15 +267,9 @@ fn parse_discovery_type(
 /// has an unsupported URI scheme or discovery type.
 pub fn parse_signature_agent_header(header: &str) -> Result<SignatureAgentHeader, RegistryError> {
     match parse_signature_agent_dictionary(header) {
-        Ok(entries) => Ok(SignatureAgentHeader::Current {
-            entries,
-            warnings: Vec::new(),
-        }),
+        Ok(entries) => Ok(SignatureAgentHeader::Current { entries }),
         Err(dictionary_error) => match parse_signature_agent_legacy(header) {
-            Ok(entries) => Ok(SignatureAgentHeader::Legacy {
-                entries,
-                warnings: vec![LEGACY_SIGNATURE_AGENT_WARNING.to_string()],
-            }),
+            Ok(entries) => Ok(SignatureAgentHeader::Legacy { entries }),
             Err(legacy_error) => Err(RegistryError::Invalid(format!(
                 "failed to parse Signature-Agent header: {dictionary_error}; {legacy_error}"
             ))),
@@ -544,7 +538,6 @@ mod tests {
         for vector in vectors {
             let parsed = parse_signature_agent_header(&vector.header).unwrap();
             assert!(matches!(parsed, SignatureAgentHeader::Current { .. }));
-            assert!(parsed.warnings().is_empty());
             assert_eq!(parsed.entries().len(), vector.entries.len());
             for (actual, expected) in parsed.entries().iter().zip(vector.entries.iter()) {
                 assert_eq!(actual.label, expected.label);
@@ -561,10 +554,9 @@ mod tests {
     }
 
     #[test]
-    fn accepts_legacy_signature_agent_with_warning() {
+    fn accepts_legacy_signature_agent() {
         let parsed = parse_signature_agent_header("\"https://signature-agent.test\"").unwrap();
         assert!(matches!(parsed, SignatureAgentHeader::Legacy { .. }));
-        assert_eq!(parsed.warnings(), [LEGACY_SIGNATURE_AGENT_WARNING]);
         assert_eq!(parsed.entries().len(), 1);
         assert_eq!(parsed.entries()[0].label, "");
         assert_eq!(parsed.entries()[0].uri, "https://signature-agent.test");
