@@ -180,7 +180,9 @@ export function parseSignatureAgentHeader(
     try {
       const [uri] = parseItem(header);
       if (typeof uri !== "string") {
-        throw new Error("legacy Signature-Agent must be a string");
+        throw new Error("legacy Signature-Agent must be a string", {
+          cause: dictionaryError,
+        });
       }
       validateDiscoveryURI(uri, "directory");
       return {
@@ -189,7 +191,8 @@ export function parseSignatureAgentHeader(
       };
     } catch (itemError) {
       throw new Error(
-        `failed to parse Signature-Agent header: ${errorMessage(dictionaryError)}; ${errorMessage(itemError)}`
+        `failed to parse Signature-Agent header: ${errorMessage(dictionaryError)}; ${errorMessage(itemError)}`,
+        { cause: itemError }
       );
     }
   }

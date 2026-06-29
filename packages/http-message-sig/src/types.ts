@@ -55,12 +55,7 @@ export interface ResponseRequestPair {
 
 // see https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-message-signatures-06#section-2.3.1
 export type Parameter =
-  | "created"
-  | "expires"
-  | "nonce"
-  | "alg"
-  | "keyid"
-  | string;
+  "created" | "expires" | "nonce" | "alg" | "keyid" | string;
 
 export interface StructuredFieldDictionaryComponent {
   header: string;

@@ -2,23 +2,28 @@
   "name": "jsonwebkey-thumbprint",
   "version": "0.1.0",
   "description": "JWK Thumbprint defined by RFC 7638",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/index.d.mts",
   "files": [
     "dist",
     "README.md"
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
-      "import": "./dist/index.mjs"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build": "tsdown src/index.ts --format esm,cjs --target es2021",
     "prepublishOnly": "npm run build",
     "test": "vitest",
     "watch": "npm run build -- --watch src"

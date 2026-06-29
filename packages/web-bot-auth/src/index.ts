@@ -71,9 +71,7 @@ export function recommendedComponents(
 
 function getSigningOptions<
   T extends
-    | httpsig.RequestLike
-    | httpsig.ResponseLike
-    | httpsig.ResponseRequestPair,
+    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
 >(
   message: T,
   params: SignatureParams
@@ -134,9 +132,7 @@ function getSigningOptions<
 
 export function signatureHeaders<
   T extends
-    | httpsig.RequestLike
-    | httpsig.ResponseLike
-    | httpsig.ResponseRequestPair,
+    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
 >(
   message: T,
   signer: httpsig.Signer,
@@ -151,9 +147,7 @@ export function signatureHeaders<
 
 export function signatureHeadersSync<
   T extends
-    | httpsig.RequestLike
-    | httpsig.ResponseLike
-    | httpsig.ResponseRequestPair,
+    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
 >(
   message: T,
   signer: httpsig.SignerSync,
@@ -174,9 +168,7 @@ export type Verify<T> = (
 
 export function verify<T>(
   message:
-    | httpsig.RequestLike
-    | httpsig.ResponseLike
-    | httpsig.ResponseRequestPair,
+    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
   verifier: Verify<T>
 ): Promise<T> {
   const v = (

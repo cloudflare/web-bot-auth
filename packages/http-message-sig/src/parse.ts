@@ -17,7 +17,8 @@ function parseSfvDictionary(
     dictionary = parseDictionary(header.toString());
   } catch (error) {
     throw new Error(
-      `Invalid ${name} header; failed to parse as RFC 8941 dictionary: ${(error as Error).message}`
+      `Invalid ${name} header; failed to parse as RFC 8941 dictionary: ${errorMessage(error)}`,
+      { cause: error }
     );
   }
 
@@ -89,6 +90,10 @@ function parseSfvDictionary(
   });
 
   return { key, components, parameters };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function parseSignatureInputHeader(header: HeaderValue): {
