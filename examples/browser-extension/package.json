@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Enterprise browser extension adding an HTTP Message signature to all requests",
   "scripts": {
-    "build:chrome": "tsup src/background.ts --format esm --platform browser --target chrome100 --clean --out-dir dist/mv3/chromium --external node:crypto",
+    "build:chrome": "tsdown src/background.ts --format esm --platform browser --target chrome100 --out-dir dist/mv3/chromium --deps.never-bundle node:crypto",
     "bundle:chrome": "npm run build:chrome && node ./scripts/build_web_artifacts.mjs",
     "start:config": "http-server ./dist/web-ext-artifacts -p 8000",
     "test": "echo \"Error: no test specified\" && exit 1",

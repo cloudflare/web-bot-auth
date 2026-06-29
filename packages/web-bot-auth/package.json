@@ -2,27 +2,37 @@
   "name": "web-bot-auth",
   "version": "0.1.3",
   "description": "Web Bot Authentication using HTTP Message Signatures",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/index.d.mts",
   "files": [
     "dist",
     "README.md"
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
-      "import": "./dist/index.mjs"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./crypto": {
-      "types": "./dist/crypto.d.ts",
-      "require": "./dist/crypto.js",
-      "import": "./dist/crypto.mjs"
+      "import": {
+        "types": "./dist/crypto.d.mts",
+        "default": "./dist/crypto.mjs"
+      },
+      "require": {
+        "types": "./dist/crypto.d.cts",
+        "default": "./dist/crypto.cjs"
+      }
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/crypto.ts --format cjs,esm --dts --clean",
+    "build": "tsdown src/index.ts src/crypto.ts --format esm,cjs --target es2021",
     "generate-test-vectors": "npm run build && node scripts/test-vectors.ts test/test_data",
     "prepublishOnly": "npm run build",
     "test": "vitest",

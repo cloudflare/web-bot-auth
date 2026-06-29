@@ -2,9 +2,9 @@
   "name": "http-message-sig",
   "version": "0.2.0",
   "description": "HTTP Message Signatures defined by RFC 9421",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/index.d.mts",
   "files": [
     "dist",
     "README.md",
@@ -12,13 +12,18 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
-      "import": "./dist/index.mjs"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build": "tsdown src/index.ts --format esm,cjs --target es2021",
     "prepublishOnly": "npm run build",
     "test": "vitest",
     "watch": "npm run build -- --watch src"

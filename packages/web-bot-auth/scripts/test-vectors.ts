@@ -4,9 +4,8 @@
 ///
 /// It takes one positional argument: [directory] which is where the vectors should be written in JSON
 
-const { recommendedComponents, signatureHeaders } = await import(
-  "../dist/index.mjs"
-);
+const { recommendedComponents, signatureHeaders } =
+  await import("../dist/index.mjs");
 
 const { signerFromJWK } = await import("../dist/crypto.mjs");
 
