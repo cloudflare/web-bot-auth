@@ -276,7 +276,7 @@ fn parse_signature_agent_dictionary(
     header: &str,
 ) -> Result<Vec<SignatureAgentEntry>, RegistryError> {
     let dictionary = sfv::Parser::new(header)
-        .parse_dictionary()
+        .parse_dictionary::<sfv::Dictionary>()
         .map_err(RegistryError::StructuredFields)?;
     if dictionary.is_empty() {
         return Err(RegistryError::Invalid(
@@ -309,7 +309,7 @@ fn parse_signature_agent_dictionary(
 
 fn parse_signature_agent_legacy(header: &str) -> Result<Vec<SignatureAgentEntry>, RegistryError> {
     let item = sfv::Parser::new(header)
-        .parse_item()
+        .parse_item::<sfv::Item>()
         .map_err(RegistryError::StructuredFields)?;
     let uri = item
         .bare_item
