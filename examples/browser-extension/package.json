@@ -28,10 +28,10 @@
   },
   "homepage": "https://github.com/cloudflareresearch/web-bot-auth#readme",
   "devDependencies": {
-    "@types/chrome": "0.0.326",
+    "@types/chrome": "0.2.0",
     "@types/libsodium-wrappers": "0.7.14",
     "crx": "5.0.1",
     "http-server": "14.1.1",
-    "libsodium-wrappers": "0.7.15"
+    "libsodium-wrappers": "0.8.4"
   }
 }
