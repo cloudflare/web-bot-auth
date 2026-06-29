@@ -1,0 +1,48 @@
+version: 2
+
+multi-ecosystem-groups:
+  examples:
+    schedule:
+      interval: weekly
+
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/packages/*"
+    schedule:
+      interval: weekly
+    groups:
+      packages:
+        patterns:
+          - "*"
+
+  - package-ecosystem: cargo
+    directories:
+      - "/"
+      - "/crates/*"
+    schedule:
+      interval: weekly
+    groups:
+      crates:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directories:
+      - "/examples/*"
+    patterns:
+      - "*"
+    multi-ecosystem-group: examples
+
+  - package-ecosystem: cargo
+    directories:
+      - "/examples/*"
+    patterns:
+      - "*"
+    multi-ecosystem-group: examples
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
