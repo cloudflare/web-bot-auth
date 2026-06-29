@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use indexmap::IndexMap;
 use regex::bytes::Regex;
-use sfv::SerializeValue;
+use sfv::FieldType;
 use time::UtcDateTime;
 
 use super::ImplementationError;
@@ -207,12 +207,7 @@ impl SignatureBase {
                 CoveredComponent::Derived(derived) => sfv::Item::try_from(derived)?,
             };
 
-            let _ = writeln!(
-                output,
-                "{}: {}",
-                sfv_item.serialize_value(),
-                serialized_value
-            );
+            let _ = writeln!(output, "{}: {}", sfv_item.serialize(), serialized_value);
             signature_params_line_items.push(sfv_item);
         }
 
@@ -220,7 +215,7 @@ impl SignatureBase {
             signature_params_line_items,
             self.parameters.raw,
         ))]
-        .serialize_value()
+        .serialize()
         .ok_or(ImplementationError::SignatureParamsSerialization)?;
 
         let _ = write!(output, "\"@signature-params\": {signature_params_line}");
@@ -425,7 +420,7 @@ impl MessageSigner {
             ),
             params: sfv::Parameters::new(),
         }
-        .serialize_value();
+        .serialize();
 
         message.register_header_contents(signature_params_content, signature);
 
@@ -483,7 +478,11 @@ impl MessageVerifier {
                 parameters: components::HTTPFieldParametersSet(vec![]),
             }))
             .into_iter()
-            .filter_map(|sig_input| sfv::Parser::new(&sig_input).parse_dictionary().ok())
+            .filter_map(|sig_input| {
+                sfv::Parser::new(&sig_input)
+                    .parse_dictionary::<sfv::Dictionary>()
+                    .ok()
+            })
             .reduce(|mut acc, sig_input| {
                 acc.extend(sig_input);
                 acc
@@ -498,7 +497,11 @@ impl MessageVerifier {
                 parameters: components::HTTPFieldParametersSet(vec![]),
             }))
             .into_iter()
-            .filter_map(|sig_input| sfv::Parser::new(&sig_input).parse_dictionary().ok())
+            .filter_map(|sig_input| {
+                sfv::Parser::new(&sig_input)
+                    .parse_dictionary::<sfv::Dictionary>()
+                    .ok()
+            })
             .reduce(|mut acc, sig_input| {
                 acc.extend(sig_input);
                 acc

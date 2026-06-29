@@ -550,7 +550,7 @@ impl TryFrom<sfv::Item> for CoveredComponent {
 
 #[cfg(test)]
 mod tests {
-    use sfv::SerializeValue;
+    use sfv::FieldType;
 
     use super::*;
 
@@ -577,7 +577,7 @@ mod tests {
         .iter()
         {
             let component: CoveredComponent = sfv::Parser::new(case)
-                .parse_item()
+                .parse_item::<sfv::Item>()
                 .unwrap()
                 .try_into()
                 .unwrap();
@@ -585,7 +585,7 @@ mod tests {
                 panic!("Expected derived components, got HTTP")
             };
             let value: sfv::Item = derived.try_into().unwrap();
-            assert_eq!(&value.serialize_value(), case);
+            assert_eq!(&value.serialize(), case);
         }
     }
 
@@ -603,7 +603,7 @@ mod tests {
         .iter()
         {
             let component: CoveredComponent = sfv::Parser::new(case)
-                .parse_item()
+                .parse_item::<sfv::Item>()
                 .unwrap()
                 .try_into()
                 .unwrap();
@@ -611,7 +611,7 @@ mod tests {
                 panic!("Expected HTTP field, got derived")
             };
             let value: sfv::Item = http.try_into().unwrap();
-            assert_eq!(value.serialize_value(), case.to_ascii_lowercase());
+            assert_eq!(value.serialize(), case.to_ascii_lowercase());
         }
     }
 
@@ -648,7 +648,7 @@ mod tests {
         {
             {
                 let component: CoveredComponent = sfv::Parser::new(case)
-                    .parse_item()
+                    .parse_item::<sfv::Item>()
                     .unwrap()
                     .try_into()
                     .unwrap();
@@ -656,7 +656,7 @@ mod tests {
                     panic!("Expected HTTP field, got derived")
                 };
                 let value: sfv::Item = http.try_into().unwrap();
-                assert_eq!(value.serialize_value(), expected.to_ascii_lowercase());
+                assert_eq!(value.serialize(), expected.to_ascii_lowercase());
             }
         }
     }
@@ -671,7 +671,7 @@ mod tests {
         {
             {
                 let component: CoveredComponent = sfv::Parser::new(case)
-                    .parse_item()
+                    .parse_item::<sfv::Item>()
                     .unwrap()
                     .try_into()
                     .unwrap();
@@ -679,7 +679,7 @@ mod tests {
                     panic!("Expected derived field, got HTTP")
                 };
                 let value: sfv::Item = derived.try_into().unwrap();
-                assert_eq!(value.serialize_value(), expected.to_ascii_lowercase());
+                assert_eq!(value.serialize(), expected.to_ascii_lowercase());
             }
         }
     }
