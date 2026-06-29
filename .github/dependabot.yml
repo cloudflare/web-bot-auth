@@ -42,6 +42,20 @@ updates:
       - "*"
     multi-ecosystem-group: examples
 
+  - package-ecosystem: uv
+    directories:
+      - "/examples/*"
+    patterns:
+      - "*"
+    multi-ecosystem-group: examples
+
+  - package-ecosystem: gomod
+    directories:
+      - "/examples/*"
+    patterns:
+      - "*"
+    multi-ecosystem-group: examples
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
