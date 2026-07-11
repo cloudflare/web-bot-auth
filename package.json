@@ -18,14 +18,14 @@
   "version": "0.0.0",
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "eslint": "10.6.0",
+    "eslint": "10.7.0",
     "eslint-plugin-security": "4.0.1",
-    "prettier": "3.9.4",
+    "prettier": "3.9.5",
     "rimraf": "6.1.3",
-    "tsdown": "0.22.3",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.62.1",
-    "vitest": "4.1.9"
+    "tsdown": "0.22.5",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.63.0",
+    "vitest": "4.1.10"
   },
   "workspaces": [
     "examples/*",
