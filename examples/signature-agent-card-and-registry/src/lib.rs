@@ -1,7 +1,6 @@
 use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::SigningKey;
 use indexmap::map::IndexMap;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -135,11 +134,13 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             Ok(response)
         }
         "/.well-known/http-message-signatures-directory" => {
-            let mut rng = rand::rngs::OsRng;
             let vectorized_keypair: Vec<u8> = match kv.get(&authority).bytes().await? {
                 Some(pair) => pair,
                 None => {
-                    let signing_key: SigningKey = SigningKey::generate(&mut rng);
+                    let mut secret_key = [0_u8; ed25519_dalek::SECRET_KEY_LENGTH];
+                    getrandom::getrandom(&mut secret_key)
+                        .map_err(|e| worker::Error::RustError(e.to_string()))?;
+                    let signing_key = SigningKey::from_bytes(&secret_key);
                     let keypair = signing_key.to_keypair_bytes().to_vec();
                     kv.put_bytes(&authority, &keypair)?.execute().await?;
                     keypair
@@ -174,7 +175,8 @@ async fn fetch(req: HttpRequest, env: Env, _ctx: Context) -> Result<Response> {
             );
 
             let mut nonce: [u8; 64] = [0; 64];
-            rng.fill_bytes(&mut nonce);
+            getrandom::getrandom(&mut nonce)
+                .map_err(|e| worker::Error::RustError(e.to_string()))?;
 
             let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
             let headers = response.headers_mut();
