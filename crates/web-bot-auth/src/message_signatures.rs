@@ -285,7 +285,7 @@ impl GenerateSignature for [u8] {
                 let signing_key_dalek = SigningKey::try_from(self)
                     .map_err(|_| ImplementationError::InvalidKeyLength)?;
 
-                signing_key_dalek.sign(msg).to_vec()
+                signing_key_dalek.sign(msg).to_bytes().to_vec()
             }
             other => return Err(ImplementationError::UnsupportedAlgorithm(other)),
         };
