@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "es2021",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true
+  }
+}
