@@ -217,7 +217,7 @@ impl TryFrom<HTTPField> for sfv::Item {
     fn try_from(value: HTTPField) -> Result<Self, Self::Error> {
         let error_message_fragment = format!(
             "Could not coerce HTTP field name `{}` into a valid sfv Item: ",
-            &value.name
+            value.name
         );
 
         Ok(sfv::Item {
@@ -380,7 +380,7 @@ impl TryFrom<QueryParamParametersSet> for sfv::Parameters {
                     let value = sfv::String::from_string(name.clone())
                         .map_err(|(_, s)| ImplementationError::ParsingError(format!(
                             "Could not coerce `@query-param` parameter `{}` into a valid sfv Parameter: {}",
-                            &name, s
+                            name, s
                         )))?;
                     sfv_parameters.insert(key, sfv::BareItem::String(value));
                     name_seen = true;
