@@ -52,6 +52,6 @@
   },
   "homepage": "https://github.com/cloudflare/web-bot-auth#readme",
   "dependencies": {
-    "structured-headers": "2.0.2"
+    "structured-headers": "2.0.3"
   }
 }
