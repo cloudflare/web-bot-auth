@@ -204,10 +204,7 @@ export function verify<T>(
           : c.name
       ).toLowerCase()
     );
-    if (
-      !covered.includes("@authority") &&
-      !covered.includes("@target-uri")
-    ) {
+    if (!covered.includes("@authority") && !covered.includes("@target-uri")) {
       throw new Error("signature must cover @authority or @target-uri");
     }
     if (signatureAgent && !covered.includes(SIGNATURE_AGENT_HEADER)) {
