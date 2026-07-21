@@ -171,10 +171,15 @@ export function verify<T>(
     httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
   verifier: Verify<T>
 ): Promise<T> {
+  const signatureAgent = httpsig.extractHeader(
+    httpsig.resolveMessageKind(message),
+    SIGNATURE_AGENT_HEADER
+  );
   const v = (
     data: string,
     signature: Uint8Array,
-    params: httpsig.Parameters
+    params: httpsig.Parameters,
+    components: httpsig.Component[]
   ): T | Promise<T> => {
     if (params.tag !== HTTP_MESSAGE_SIGNATURE_TAG) {
       throw new Error(`tag must be '${HTTP_MESSAGE_SIGNATURE_TAG}'`);
@@ -187,6 +192,25 @@ export function verify<T>(
     }
     if (params.keyid === undefined) {
       throw new Error("keyid MUST be defined");
+    }
+    // A signature that covers no request target can be replayed against any
+    // endpoint. Require @authority or @target-uri, and signature-agent whenever
+    // the header is present. Mirrors crates/web-bot-auth/src/lib.rs.
+    const covered = components.map((c) =>
+      (typeof c === "string"
+        ? c
+        : "header" in c
+          ? c.header
+          : c.name
+      ).toLowerCase()
+    );
+    if (!covered.includes("@authority") && !covered.includes("@target-uri")) {
+      throw new Error("signature must cover @authority or @target-uri");
+    }
+    if (signatureAgent && !covered.includes(SIGNATURE_AGENT_HEADER)) {
+      throw new Error(
+        `signature with ${SIGNATURE_AGENT_HEADER} header must cover ${SIGNATURE_AGENT_HEADER}`
+      );
     }
     const vparams: VerificationParams = {
       keyid: params.keyid,

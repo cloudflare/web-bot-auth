@@ -36,5 +36,5 @@ export async function verify<T>(
     .replace(/^[^=]+=/, "");
   const signedData = buildSignedData(message, components, signatureInputString);
 
-  return verifier(signedData, signature, parameters);
+  return verifier(signedData, signature, parameters, components);
 }

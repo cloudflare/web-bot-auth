@@ -112,6 +112,54 @@ describe("custom components", () => {
   });
 });
 
+describe("covered component enforcement (GHSA-x9cc-346q-g27m)", () => {
+  const ed25519Key =
+    vectors.find((v) => v.key.kty === "OKP")?.key ?? vectors[0].key;
+  const created = new Date(1735689600000);
+  const expires = new Date(1735693200000);
+
+  async function signedRequestWith(components: string[]): Promise<Request> {
+    const signer = await signerFromJWK(ed25519Key);
+    const request = new Request("https://example.com/public");
+    const signedHeaders = await signatureHeaders(request, signer, {
+      created,
+      expires,
+      components,
+    });
+    const headers = new Headers();
+    headers.append("Signature", signedHeaders["Signature"]);
+    headers.append("Signature-Input", signedHeaders["Signature-Input"]);
+    return new Request(request.url, { headers });
+  }
+
+  it("rejects a signature that covers no request components", async () => {
+    const signedRequest = await signedRequestWith([]);
+    vi.setSystemTime(created);
+    await expect(
+      verify(signedRequest, await verifierFromJWK(ed25519Key))
+    ).rejects.toThrow("signature must cover @authority or @target-uri");
+    vi.useRealTimers();
+  });
+
+  it("accepts a signature covering @authority", async () => {
+    const signedRequest = await signedRequestWith(["@authority"]);
+    vi.setSystemTime(created);
+    await expect(
+      verify(signedRequest, await verifierFromJWK(ed25519Key))
+    ).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("accepts a signature covering @target-uri", async () => {
+    const signedRequest = await signedRequestWith(["@target-uri"]);
+    vi.setSystemTime(created);
+    await expect(
+      verify(signedRequest, await verifierFromJWK(ed25519Key))
+    ).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+});
+
 describe("nonce", () => {
   describe("generateNonce", () => {
     it("should generate a base64 string", () => {

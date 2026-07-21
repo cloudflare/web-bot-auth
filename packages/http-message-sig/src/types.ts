@@ -23,7 +23,8 @@ export interface SignerSync {
 export type Verify<T> = (
   data: string,
   signature: Uint8Array,
-  params: Parameters
+  params: Parameters,
+  components: Component[]
 ) => T | Promise<T>;
 
 interface HeadersMap {
