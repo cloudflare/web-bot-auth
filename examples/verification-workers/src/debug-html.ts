@@ -565,11 +565,8 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
           return request.method.toUpperCase();
         case "@target-uri":
           return request.url.toString();
-        case "@authority": {
-          const port = request.url.port;
-          const includePort = port !== "" && port !== "80" && port !== "443";
-          return request.url.hostname + (includePort ? ":" + port : "");
-        }
+        case "@authority":
+          return request.url.host;
         case "@scheme":
           return request.url.protocol.slice(0, -1);
         case "@request-target":
