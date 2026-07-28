@@ -86,11 +86,9 @@ export function extractComponent(
       if (!(message as RequestLike).url)
         throw new Error(`${component} is only valid for requests`);
       return (message as RequestLike).url;
-    case "@authority": {
-      const url = getUrl(message, component);
-      const port = url.port ? parseInt(url.port, 10) : null;
-      return `${url.hostname}${port && ![80, 443].includes(port) ? `:${port}` : ""}`;
-    }
+    case "@authority":
+      // URL.host omits only the scheme's default port, per RFC 9421 section 2.2.3.
+      return getUrl(message, component).host;
     case "@scheme":
       return getUrl(message, component).protocol.slice(0, -1);
     case "@request-target": {

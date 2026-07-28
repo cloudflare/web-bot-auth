@@ -84,6 +84,18 @@ describe("build", () => {
       expect(result).to.equal("www.example.com");
     });
 
+    it.each([
+      ["http://www.example.com:443/", "www.example.com:443"],
+      ["https://www.example.com:80/", "www.example.com:80"],
+      ["http://www.example.com:80/", "www.example.com"],
+    ])("normalizes @authority for %s", (url, expected) => {
+      const result = extractComponent(
+        { method: "GET", url } as unknown as RequestLike,
+        "@authority"
+      );
+      expect(result).to.equal(expected);
+    });
+
     it("correctly extracts the @scheme", () => {
       const result = extractComponent(
         {
@@ -117,6 +129,18 @@ describe("build", () => {
       expect(result).to.equal("/path");
     });
 
+    it.each([
+      ["https://www.example.com/%7epath", "/%7epath"],
+      ["https://www.example.com/%zz", "/%zz"],
+    ])("does not percent-decode @path for %s", (url, expected) => {
+      // RFC 9421 section 2.2.6 uses values before percent-decoding.
+      const result = extractComponent(
+        { method: "GET", url } as unknown as RequestLike,
+        "@path"
+      );
+      expect(result).to.equal(expected);
+    });
+
     it("correctly extracts the @query", () => {
       const result = extractComponent(
         {
@@ -126,6 +150,18 @@ describe("build", () => {
         "@query"
       );
       expect(result).to.equal("?param=value&foo=bar&baz=batman");
+    });
+
+    it("does not percent-decode @query", () => {
+      // RFC 9421 section 2.2.7 requires percent-encoded octets to remain encoded.
+      const result = extractComponent(
+        {
+          method: "GET",
+          url: "https://www.example.com/path?param=value&foo=bar&baz=bat%2Dman",
+        } as unknown as RequestLike,
+        "@query"
+      );
+      expect(result).to.equal("?param=value&foo=bar&baz=bat%2Dman");
     });
 
     it("correctly extracts the @query string", () => {

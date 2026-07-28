@@ -765,4 +765,28 @@ mod tests {
         let (base, _) = sigbase.into_ascii().unwrap();
         assert_eq!(base, expected_base);
     }
+
+    #[test]
+    fn signature_base_preserves_percent_encoded_components() {
+        let sigbase = SignatureBase {
+            components: IndexMap::from_iter([
+                (
+                    CoveredComponent::Derived(DerivedComponent::Path { req: false }),
+                    "/%7Esmith".to_string(),
+                ),
+                (
+                    CoveredComponent::Derived(DerivedComponent::Query { req: false }),
+                    "?baz=bat%7Eman".to_string(),
+                ),
+            ]),
+            parameters: IndexMap::new().into(),
+        };
+
+        // RFC 9421 sections 2.2.6 and 2.2.7 use values before percent-decoding.
+        let (base, _) = sigbase.into_ascii().unwrap();
+        assert_eq!(
+            base,
+            "\"@path\": /%7Esmith\n\"@query\": ?baz=bat%7Eman\n\"@signature-params\": (\"@path\" \"@query\")"
+        );
+    }
 }
