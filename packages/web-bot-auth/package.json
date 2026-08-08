@@ -55,8 +55,7 @@
   },
   "homepage": "https://github.com/cloudflare/web-bot-auth#readme",
   "dependencies": {
-    "fetch-message-signatures": "^0.0.5",
-    "jsonwebkey-thumbprint": "^0.1.0",
-    "structured-headers": "2.0.3"
+    "fetch-message-signatures": "^0.0.6",
+    "jsonwebkey-thumbprint": "^0.1.0"
   }
 }
