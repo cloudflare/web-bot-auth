@@ -1,45 +1,59 @@
-import * as httpsig from "http-message-sig";
-export {
-  HTTP_MESSAGE_SIGNATURES_DIRECTORY,
-  type Algorithm,
-  MediaType,
-  type SignatureHeaders,
-  type Signer,
-  type SignerSync,
-  type SignOptions,
-  type SignSyncOptions,
-  Tag,
-  directoryResponseHeaders,
-} from "http-message-sig";
+import * as FetchSig from "fetch-message-signatures";
 export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
 
 import { b64Tou8, u8ToB64 } from "./base64";
+import type { KeyedSigner } from "./crypto";
 export { helpers } from "./crypto";
+export { HTTP_MESSAGE_SIGNATURES_DIRECTORY, MediaType, Tag } from "./consts";
+export { directoryResponseHeaders, RESPONSE_COMPONENTS } from "./directory";
+
+// The registry these identifiers come from is extensible, so this covers the initial entries only.
+export type Algorithm =
+  | "rsa-pss-sha512"
+  | "rsa-v1_5-sha256"
+  | "hmac-sha256"
+  | "ecdsa-p256-sha256"
+  | "ecdsa-p384-sha384"
+  | "ed25519";
+
+export type { KeyedSigner, KeyedSigner as Signer } from "./crypto";
+
+// The recipient contract callers have to satisfy, re-exported so that a consumer of verify() does
+// not have to depend on fetch-message-signatures directly.
+export type {
+  MessageSignature,
+  SynchronousVerifierFactory,
+  VerifierFactory,
+} from "fetch-message-signatures";
 
 export const HTTP_MESSAGE_SIGNATURE_TAG = "web-bot-auth";
 export const SIGNATURE_AGENT_HEADER = "signature-agent";
-export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = [
-  "@authority",
-];
-export const REQUEST_COMPONENTS: httpsig.Component[] = [
+export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: FetchSig.ComponentIdentifier[] =
+  ["@authority"];
+export const REQUEST_COMPONENTS: FetchSig.ComponentIdentifier[] = [
   "@authority",
   SIGNATURE_AGENT_HEADER,
 ];
 export const NONCE_LENGTH_IN_BYTES = 64;
+
+export interface SignatureHeaders {
+  "Signature-Input": string;
+  Signature: string;
+}
 
 export interface SignatureParams {
   created: Date;
   expires: Date;
   nonce?: string;
   key?: string;
-  components?: httpsig.Component[];
+  components?: FetchSig.ComponentIdentifier[];
 }
 
 export interface VerificationParams {
   keyid: string;
   created: Date;
   expires: Date;
-  tag: typeof HTTP_MESSAGE_SIGNATURE_TAG;
+  tag: string;
   nonce?: string;
 }
 
@@ -59,173 +73,205 @@ export function validateNonce(nonce: string): boolean {
 
 export function recommendedComponents(
   signatureAgentKey?: string
-): httpsig.Component[] {
+): FetchSig.ComponentIdentifier[] {
   if (signatureAgentKey) {
     return [
       "@authority",
-      { header: SIGNATURE_AGENT_HEADER, key: signatureAgentKey },
+      FetchSig.component(SIGNATURE_AGENT_HEADER, { key: signatureAgentKey }),
     ];
   }
   return ["@authority"];
 }
 
-function getSigningOptions<
-  T extends
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
->(
-  message: T,
+function signatureAgentOf(message: Request | Response): string | null {
+  return message.headers.get(SIGNATURE_AGENT_HEADER);
+}
+
+function signingComponents(
+  message: Request | Response,
   params: SignatureParams
-): Omit<httpsig.SignOptions | httpsig.SignSyncOptions, "signer" | "keyid"> {
+): FetchSig.ComponentIdentifier[] {
+  const signatureAgent = signatureAgentOf(message);
+  if (!params.components) {
+    return signatureAgent
+      ? REQUEST_COMPONENTS
+      : REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
+  }
+  // findComponents rather than includesComponent: recommendedComponents() produces
+  // `"signature-agent";key="sig1"`, and the rule is about the field being bound at all.
+  if (
+    signatureAgent &&
+    FetchSig.findComponents(params.components, SIGNATURE_AGENT_HEADER)
+      .length === 0
+  ) {
+    throw new Error(
+      `${SIGNATURE_AGENT_HEADER} is required in params.components when included as a header param`
+    );
+  }
+  return params.components;
+}
+
+interface ResolvedParams {
+  components: FetchSig.ComponentIdentifier[];
+  label: string;
+  parameters: FetchSig.SignatureParameters;
+}
+
+function resolveParams(
+  message: Request | Response,
+  signer: KeyedSigner,
+  params: SignatureParams
+): ResolvedParams {
   if (params.created.getTime() > params.expires.getTime()) {
     throw new Error("created should happen before expires");
   }
-  // Nonce should be a base64 encoded 64-byte array. We should check it
   let nonce = params.nonce;
   if (!nonce) {
     nonce = generateNonce();
-  } else {
-    if (!validateNonce(nonce)) {
-      throw new Error("nonce is not a valid uint32");
-    }
-  }
-  const signatureAgent = httpsig.extractHeader(
-    httpsig.resolveMessageKind(message),
-    SIGNATURE_AGENT_HEADER
-  );
-  let components: httpsig.Component[];
-  if (!params.components) {
-    // `extractHeader` returns "" instead of throwing or null when the header does not exist
-    if (!signatureAgent) {
-      components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
-    } else {
-      components = REQUEST_COMPONENTS;
-    }
-  } else {
-    if (
-      signatureAgent &&
-      !params.components.some((c) => {
-        if (typeof c === "string") {
-          return c === SIGNATURE_AGENT_HEADER;
-        }
-        if ("header" in c) {
-          return c.header === SIGNATURE_AGENT_HEADER;
-        }
-        return c.name === SIGNATURE_AGENT_HEADER;
-      })
-    ) {
-      throw new Error(
-        `${SIGNATURE_AGENT_HEADER} is required in params.components when included as a header param`
-      );
-    }
-    components = params.components;
+  } else if (!validateNonce(nonce)) {
+    throw new Error("nonce is not a valid uint32");
   }
 
   return {
-    components,
-    created: params.created,
-    expires: params.expires,
-    nonce,
-    key: params.key,
-    tag: HTTP_MESSAGE_SIGNATURE_TAG,
+    components: signingComponents(message, params),
+    label: params.key ?? "sig1",
+    // Ordered, because RFC 9421 covers parameter order in the signature base.
+    parameters: [
+      ["created", params.created],
+      ["keyid", signer.keyid],
+      ["alg", signer.alg],
+      ["expires", params.expires],
+      ["nonce", nonce],
+      ["tag", HTTP_MESSAGE_SIGNATURE_TAG],
+    ],
   };
 }
 
-export function signatureHeaders<
-  T extends
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
->(
-  message: T,
-  signer: httpsig.Signer,
+export function signatureHeaders(
+  message: Request | Response,
+  signer: KeyedSigner,
   params: SignatureParams
-): Promise<httpsig.SignatureHeaders> {
-  return httpsig.signatureHeaders(message, {
-    signer,
-    keyid: signer.keyid,
-    ...getSigningOptions(message, params),
-  });
+): Promise<SignatureHeaders> {
+  // Resolved here so invalid arguments throw rather than rejecting.
+  const resolved = resolveParams(message, signer, params);
+
+  return createFields(message, signer, resolved);
 }
 
-export function signatureHeadersSync<
-  T extends
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
->(
-  message: T,
-  signer: httpsig.SignerSync,
+/**
+ * The synchronous counterpart of {@link signatureHeaders}, for callers that cannot await.
+ *
+ * A blocking `chrome.webRequest.onBeforeSendHeaders` listener is the motivating case: it has to
+ * return the modified headers synchronously. createSignatureBase() and createSignatureFields() are
+ * the two halves of createSignature(), neither of which returns a Promise, so the same components
+ * and parameters go to both.
+ *
+ * The signer must be synchronous. Web Cryptography is not, so this needs a signer backed by a
+ * synchronous library.
+ */
+export function signatureHeadersSync(
+  message: Request | Response,
+  signer: KeyedSigner,
   params: SignatureParams
-): httpsig.SignatureHeaders {
-  return httpsig.signatureHeadersSync(message, {
+): SignatureHeaders {
+  const { components, label, parameters } = resolveParams(
+    message,
     signer,
-    keyid: signer.keyid,
-    ...getSigningOptions(message, params),
-  });
-}
-
-export type Verify<T> = (
-  data: string,
-  signature: Uint8Array,
-  params: VerificationParams
-) => T | Promise<T>;
-
-export function verify<T>(
-  message:
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
-  verifier: Verify<T>
-): Promise<T> {
-  const signatureAgent = httpsig.extractHeader(
-    httpsig.resolveMessageKind(message),
-    SIGNATURE_AGENT_HEADER
+    params
   );
-  const v = (
-    data: string,
-    signature: Uint8Array,
-    params: httpsig.Parameters,
-    components: httpsig.Component[]
-  ): T | Promise<T> => {
-    if (params.tag !== HTTP_MESSAGE_SIGNATURE_TAG) {
-      throw new Error(`tag must be '${HTTP_MESSAGE_SIGNATURE_TAG}'`);
-    }
-    if (params.created.getTime() > Date.now()) {
-      throw new Error("created in the future");
-    }
-    if (params.expires.getTime() < Date.now()) {
-      throw new Error("signature has expired");
-    }
-    if (params.keyid === undefined) {
-      throw new Error("keyid MUST be defined");
-    }
-    // A signature that covers no request target can be replayed against any
-    // endpoint. Require @authority or @target-uri, and signature-agent whenever
-    // the header is present. Mirrors crates/web-bot-auth/src/lib.rs.
-    const covered = components.map((c) =>
-      (typeof c === "string"
-        ? c
-        : "header" in c
-          ? c.header
-          : c.name
-      ).toLowerCase()
-    );
-    if (!covered.includes("@authority") && !covered.includes("@target-uri")) {
-      throw new Error("signature must cover @authority or @target-uri");
-    }
-    if (signatureAgent && !covered.includes(SIGNATURE_AGENT_HEADER)) {
-      throw new Error(
-        `signature with ${SIGNATURE_AGENT_HEADER} header must cover ${SIGNATURE_AGENT_HEADER}`
-      );
-    }
-    const vparams: VerificationParams = {
-      keyid: params.keyid,
-      created: params.created,
-      expires: params.expires,
-      tag: params.tag,
-      nonce: params.nonce,
-    };
-    return verifier(data, signature, vparams);
+
+  const base = FetchSig.createSignatureBase(message, {
+    components,
+    parameters,
+  });
+  const signature = signer.signer().sign(new TextEncoder().encode(base));
+  if (!(signature instanceof Uint8Array)) {
+    throw new Error("signer is not synchronous");
+  }
+
+  const fields = FetchSig.createSignatureFields({
+    signature,
+    components,
+    parameters,
+    label,
+  });
+
+  return {
+    "Signature-Input": fields.signatureInput,
+    Signature: fields.signatureField,
   };
-  return httpsig.verify(message, v);
 }
 
-export interface Directory extends httpsig.Directory {
+async function createFields(
+  message: Request | Response,
+  signer: KeyedSigner,
+  resolved: ResolvedParams
+): Promise<SignatureHeaders> {
+  const fields = await FetchSig.createSignature(message, {
+    signer: signer.signer,
+    components: resolved.components,
+    parameters: resolved.parameters,
+    label: resolved.label,
+  });
+
+  return {
+    "Signature-Input": fields.signatureInput,
+    Signature: fields.signatureField,
+  };
+}
+
+export async function verify(
+  message: Request | Response,
+  verifier: FetchSig.VerifierFactory,
+  request?: Request
+): Promise<void> {
+  const signatureAgent = signatureAgentOf(message);
+
+  await FetchSig.verify(message, {
+    verifier,
+    request,
+    policy: {
+      requiredComponents: [],
+      requiredParameters: ["keyid", "created", "expires", "tag"],
+      algorithms: ["ed25519", "rsa-pss-sha512"],
+      validate(signature) {
+        if (
+          FetchSig.getSignatureParameter(signature, "tag") !==
+          HTTP_MESSAGE_SIGNATURE_TAG
+        ) {
+          throw new Error(`tag must be '${HTTP_MESSAGE_SIGNATURE_TAG}'`);
+        }
+        // A signature that covers no request target can be replayed against any
+        // endpoint. Require @authority or @target-uri, and signature-agent
+        // whenever the header is present.
+        //
+        // findComponents rather than includesComponent, because a response
+        // signature binds the request target as `"@authority";req`, which is a
+        // different identifier but the same rule.
+        const covered = signature.components;
+        if (
+          FetchSig.findComponents(covered, "@authority").length === 0 &&
+          FetchSig.findComponents(covered, "@target-uri").length === 0
+        ) {
+          throw new Error("signature must cover @authority or @target-uri");
+        }
+        if (
+          signatureAgent &&
+          FetchSig.findComponents(covered, SIGNATURE_AGENT_HEADER).length === 0
+        ) {
+          throw new Error(
+            `signature with ${SIGNATURE_AGENT_HEADER} header must cover ${SIGNATURE_AGENT_HEADER}`
+          );
+        }
+      },
+    },
+  });
+}
+
+export interface Directory {
+  keys: JsonWebKey[];
   purpose: string;
+  schema?: string;
 }
 
 export {
