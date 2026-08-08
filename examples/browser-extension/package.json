@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/cloudflareresearch/web-bot-auth#readme",
   "devDependencies": {
-    "@types/chrome": "0.2.2",
+    "@types/chrome": "0.2.5",
     "@types/libsodium-wrappers": "0.8.2",
     "crx": "5.0.1",
     "http-server": "14.1.1",
