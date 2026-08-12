@@ -87,6 +87,6 @@ fn main() {
     // Opt-in advisory path: full cryptographic verification still runs, and
     // the expired window is reported as a warning instead of an error.
     let verifier = WebBotAuthVerifier::parse(&test).unwrap();
-    let outcome = verifier.verify_with_advisory(&keyring, None).unwrap();
+    let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
     assert!(outcome.advisory.is_expired.unwrap_or(true));
 }

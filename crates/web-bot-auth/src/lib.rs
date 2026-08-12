@@ -152,7 +152,7 @@ pub struct WebBotAuthVerifier {
     parsed_directories: Vec<SignatureAgentLink>,
 }
 
-/// The outcome of [`WebBotAuthVerifier::verify_with_advisory`]: cryptographic
+/// The outcome of [`WebBotAuthVerifier::verify_ignore_expiry`]: cryptographic
 /// verification has completed, and advisory conditions that the strict
 /// [`WebBotAuthVerifier::verify`] would have enforced are reported instead.
 #[derive(Clone, Debug)]
@@ -334,7 +334,7 @@ impl WebBotAuthVerifier {
     /// returning [`WebBotAuthError::SignatureIsExpired`] before cryptographic
     /// verification. That matches the TypeScript `http-message-sig` verifier.
     /// Callers that must process expired-but-valid signatures can opt into
-    /// advisory-only expiry handling via [`Self::verify_with_advisory`].
+    /// [`Self::verify_ignore_expiry`].
     pub fn verify(
         self,
         keyring: &KeyRing,
@@ -364,7 +364,7 @@ impl WebBotAuthVerifier {
     /// RFC 9421 leaves enforcement of application requirements such as expiry
     /// to the application; this opt-in serves verifiers that need to parse and
     /// judge such signatures themselves rather than reject them up front.
-    pub fn verify_with_advisory(
+    pub fn verify_ignore_expiry(
         self,
         keyring: &KeyRing,
         key_id: Option<String>,
@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_with_advisory_on_expired_signature() {
+    fn test_verify_ignore_expiry_on_expired_signature() {
         let test = StandardTestVector {};
         let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
             0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
@@ -468,7 +468,7 @@ mod tests {
         let verifier = WebBotAuthVerifier::parse(&test).unwrap();
         // Opt-in path: full cryptographic verification runs despite the expired
         // window, and the expiry surfaces as an advisory instead of an error.
-        let outcome = verifier.verify_with_advisory(&keyring, None).unwrap();
+        let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
         assert!(outcome.advisory.is_expired.unwrap_or(true));
         assert!(!outcome.advisory.nonce_is_invalid.unwrap_or(true));
     }
