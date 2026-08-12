@@ -32,7 +32,9 @@ use data_url::DataUrl;
 
 use components::{CoveredComponent, HTTPField, HTTPFieldParameters};
 use keyring::{Algorithm, JSONWebKeySet, KeyRing};
-use message_signatures::{MessageVerifier, ParsedLabel, SignatureTiming, SignedMessage};
+use message_signatures::{
+    MessageVerifier, ParsedLabel, SecurityAdvisory, SignatureTiming, SignedMessage,
+};
 use registry::{SignatureAgentDiscoveryType, parse_signature_agent_header};
 
 /// Errors that may be thrown by this module.
@@ -148,6 +150,18 @@ pub struct WebBotAuthVerifier {
     message_verifier: MessageVerifier,
     /// List of valid `Signature-Agent` headers to try, if present.
     parsed_directories: Vec<SignatureAgentLink>,
+}
+
+/// The outcome of [`WebBotAuthVerifier::verify_with_advisory`]: cryptographic
+/// verification has completed, and advisory conditions that the strict
+/// [`WebBotAuthVerifier::verify`] would have enforced are reported instead.
+#[derive(Clone, Debug)]
+pub struct AdvisoryVerification {
+    /// Micro-measurements of the verification process.
+    pub timing: SignatureTiming,
+    /// Advisory observed before verification, e.g. whether the signature
+    /// window had already expired.
+    pub advisory: SecurityAdvisory,
 }
 
 /// The different types of URLs a `Signature-Agent` can have.
@@ -319,8 +333,8 @@ impl WebBotAuthVerifier {
     /// This fails closed when `expires` is in the past (or unparsable),
     /// returning [`WebBotAuthError::SignatureIsExpired`] before cryptographic
     /// verification. That matches the TypeScript `http-message-sig` verifier.
-    /// Callers that need advisory-only expiry checks can still inspect
-    /// `possibly_insecure` via [`Self::get_parsed_label`].
+    /// Callers that must process expired-but-valid signatures can opt into
+    /// advisory-only expiry handling via [`Self::verify_with_advisory`].
     pub fn verify(
         self,
         keyring: &KeyRing,
@@ -340,6 +354,30 @@ impl WebBotAuthVerifier {
             ));
         }
         self.message_verifier.verify(keyring, key_id)
+    }
+
+    /// Verify the message like [`Self::verify`], but without failing closed on
+    /// the `expires` window: full cryptographic verification always runs, and
+    /// the pre-verification [`SecurityAdvisory`] is returned alongside the
+    /// timing so the caller can decide how to treat an expired signature.
+    ///
+    /// RFC 9421 leaves enforcement of application requirements such as expiry
+    /// to the application; this opt-in serves verifiers that need to parse and
+    /// judge such signatures themselves rather than reject them up front.
+    pub fn verify_with_advisory(
+        self,
+        keyring: &KeyRing,
+        key_id: Option<String>,
+    ) -> Result<AdvisoryVerification, ImplementationError> {
+        let advisory = self
+            .message_verifier
+            .parsed
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
+        let timing = self.message_verifier.verify(keyring, key_id)?;
+        Ok(AdvisoryVerification { timing, advisory })
     }
 
     /// Retrieve the contents of the chosen signature and signature input label for
@@ -411,6 +449,28 @@ mod tests {
             err,
             ImplementationError::WebBotAuth(WebBotAuthError::SignatureIsExpired)
         ));
+    }
+
+    #[test]
+    fn test_verify_with_advisory_on_expired_signature() {
+        let test = StandardTestVector {};
+        let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+            0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
+            0x2b, 0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd,
+            0xce, 0x43, 0xd1, 0xbb,
+        ];
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
+            public_key.to_vec(),
+        );
+        let verifier = WebBotAuthVerifier::parse(&test).unwrap();
+        // Opt-in path: full cryptographic verification runs despite the expired
+        // window, and the expiry surfaces as an advisory instead of an error.
+        let outcome = verifier.verify_with_advisory(&keyring, None).unwrap();
+        assert!(outcome.advisory.is_expired.unwrap_or(true));
+        assert!(!outcome.advisory.nonce_is_invalid.unwrap_or(true));
     }
 
     #[test]

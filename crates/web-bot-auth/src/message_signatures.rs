@@ -92,6 +92,7 @@ impl From<sfv::Parameters> for SignatureParams {
 
 /// Advises whether or not to accept the message as valid prior to
 /// verification, based on a cursory examination of the message parameters.
+#[derive(Clone, Debug)]
 pub struct SecurityAdvisory {
     /// If the `expires` tag was present on the message, whether or not
     /// the message expired in the past.
