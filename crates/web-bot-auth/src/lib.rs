@@ -315,11 +315,30 @@ impl WebBotAuthVerifier {
     /// If `key_id` is not supplied, a key ID to fetch the public key
     /// from `keyring` will be sourced from the `keyid` parameter
     /// within the message.
+    ///
+    /// This fails closed when `expires` is in the past (or unparsable),
+    /// returning [`WebBotAuthError::SignatureIsExpired`] before cryptographic
+    /// verification. That matches the TypeScript `http-message-sig` verifier.
+    /// Callers that need advisory-only expiry checks can still inspect
+    /// `possibly_insecure` via [`Self::get_parsed_label`].
     pub fn verify(
         self,
         keyring: &KeyRing,
         key_id: Option<String>,
     ) -> Result<SignatureTiming, ImplementationError> {
+        let advisory = self
+            .message_verifier
+            .parsed
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
+        // Web Bot Auth parse requires `expires`; treat missing/unparsable as expired.
+        if advisory.is_expired.unwrap_or(true) {
+            return Err(ImplementationError::WebBotAuth(
+                WebBotAuthError::SignatureIsExpired,
+            ));
+        }
         self.message_verifier.verify(keyring, key_id)
     }
 
@@ -386,10 +405,12 @@ mod tests {
         // Since the expiry date is in the past.
         assert!(advisory.is_expired.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
-        let timing = verifier.verify(&keyring, None).unwrap();
-
-        assert!(timing.generation.as_nanos() > 0);
-        assert!(timing.verification.as_nanos() > 0);
+        // WebBotAuthVerifier::verify must fail closed on expired signatures.
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::WebBotAuth(WebBotAuthError::SignatureIsExpired)
+        ));
     }
 
     #[test]
