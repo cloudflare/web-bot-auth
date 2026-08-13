@@ -97,6 +97,9 @@ pub struct SecurityAdvisory {
     /// If the `expires` tag was present on the message, whether or not
     /// the message expired in the past.
     pub is_expired: Option<bool>,
+    /// If the `created` tag was present on the message, whether or not
+    /// `created` is still in the future.
+    pub is_created_in_future: Option<bool>,
     /// If the `nonce` tag was present on the message, whether or not
     /// the nonce was valid, as judged py a suitable nonce validator.
     pub nonce_is_invalid: Option<bool>,
@@ -116,6 +119,13 @@ impl ParameterDetails {
                 if let Ok(expiry) = UtcDateTime::from_unix_timestamp(expires) {
                     let now = UtcDateTime::now();
                     return now >= expiry;
+                }
+
+                true
+            }),
+            is_created_in_future: self.created.map(|created| {
+                if let Ok(created_at) = UtcDateTime::from_unix_timestamp(created) {
+                    return UtcDateTime::now() < created_at;
                 }
 
                 true

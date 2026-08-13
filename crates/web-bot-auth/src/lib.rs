@@ -130,14 +130,17 @@ impl core::error::Error for ImplementationError {
 #[derive(Debug)]
 pub enum WebBotAuthError {
     /// Thrown when the signature is detected to be expired, using the `expires`
-    /// and `creates` method.
+    /// and `created` parameters.
     SignatureIsExpired,
+    /// Thrown when `created` is still in the future.
+    SignatureCreatedInFuture,
 }
 
 impl core::fmt::Display for WebBotAuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WebBotAuthError::SignatureIsExpired => write!(f, "signature is expired"),
+            WebBotAuthError::SignatureCreatedInFuture => write!(f, "created in the future"),
         }
     }
 }
@@ -330,11 +333,11 @@ impl WebBotAuthVerifier {
     /// from `keyring` will be sourced from the `keyid` parameter
     /// within the message.
     ///
-    /// This fails closed when `expires` is in the past (or unparsable),
-    /// returning [`WebBotAuthError::SignatureIsExpired`] before cryptographic
-    /// verification. That matches the TypeScript `http-message-sig` verifier.
-    /// Callers that must process expired-but-valid signatures can opt into
-    /// [`Self::verify_ignore_expiry`].
+    /// This fails closed when `created` is in the future or `expires` is in the
+    /// past (or unparsable), returning [`WebBotAuthError::SignatureCreatedInFuture`]
+    /// or [`WebBotAuthError::SignatureIsExpired`] before cryptographic verification.
+    /// That matches the TypeScript `web-bot-auth` verifier. Callers that must
+    /// process expired-but-valid signatures can opt into [`Self::verify_ignore_expiry`].
     pub fn verify(
         self,
         keyring: &KeyRing,
@@ -347,7 +350,13 @@ impl WebBotAuthVerifier {
             .parameters
             .details
             .possibly_insecure(|_| false);
-        // Web Bot Auth parse requires `expires`; treat missing/unparsable as expired.
+        // Web Bot Auth parse requires `created` and `expires`; treat missing
+        // or unparsable timestamps as out of window.
+        if advisory.is_created_in_future.unwrap_or(true) {
+            return Err(ImplementationError::WebBotAuth(
+                WebBotAuthError::SignatureCreatedInFuture,
+            ));
+        }
         if advisory.is_expired.unwrap_or(true) {
             return Err(ImplementationError::WebBotAuth(
                 WebBotAuthError::SignatureIsExpired,
@@ -474,6 +483,97 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_rejects_created_in_the_future() {
+        use ed25519_dalek::{Signer, SigningKey};
+        use sfv::{self, FieldType};
+        use time::UtcDateTime;
+
+        struct FutureCreatedMsg {
+            signature_input: String,
+            signature_header: String,
+        }
+
+        impl SignedMessage for FutureCreatedMsg {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec![self.signature_header.clone()];
+                        }
+                        if name == "signature-input" {
+                            return vec![self.signature_input.clone()];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+            0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
+            0x2b, 0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd,
+            0xce, 0x43, 0xd1, 0xbb,
+        ];
+        let private_key: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
+            0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c,
+            0x0e, 0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f,
+            0x6a, 0x7d, 0x29, 0xc5,
+        ];
+
+        let created = UtcDateTime::now().unix_timestamp() + 3600;
+        let expires = created + 3600;
+        let params = format!(
+            r#"("@authority");created={created};keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="future-created-test";tag="web-bot-auth";expires={expires}"#
+        );
+        let base = format!("\"@authority\": example.com\n\"@signature-params\": {params}");
+        let signing_key = SigningKey::try_from(&private_key[..]).expect("test key length");
+        let signature_header = sfv::Item {
+            bare_item: sfv::BareItem::ByteSequence(
+                signing_key.sign(base.as_bytes()).to_bytes().to_vec(),
+            ),
+            params: sfv::Parameters::new(),
+        }
+        .serialize();
+
+        let msg = FutureCreatedMsg {
+            signature_input: format!("sig1={params}"),
+            signature_header: format!("sig1={signature_header}"),
+        };
+
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
+            public_key.to_vec(),
+        );
+
+        let verifier = WebBotAuthVerifier::parse(&msg).unwrap();
+        let advisory = verifier
+            .get_parsed_label()
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
+        assert!(advisory.is_created_in_future.unwrap_or(false));
+        assert!(!advisory.is_expired.unwrap_or(true));
+
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::WebBotAuth(WebBotAuthError::SignatureCreatedInFuture)
+        ));
+
+        let verifier = WebBotAuthVerifier::parse(&msg).unwrap();
+        let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
+        assert!(outcome.advisory.is_created_in_future.unwrap_or(false));
+        assert!(!outcome.advisory.is_expired.unwrap_or(true));
+    }
+
+    #[test]
     fn test_signing_then_verifying() {
         struct MyTest {
             signature_input: String,
@@ -566,6 +666,7 @@ mod tests {
             .details
             .possibly_insecure(|_| false);
         assert!(!advisory.is_expired.unwrap_or(true));
+        assert!(!advisory.is_created_in_future.unwrap_or(true));
         assert!(!advisory.nonce_is_invalid.unwrap_or(true));
 
         let timing = verifier.verify(&keyring, None).unwrap();
