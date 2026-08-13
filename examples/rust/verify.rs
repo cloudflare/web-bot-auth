@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use web_bot_auth::{
-    SignatureAgentLink, WebBotAuthVerifier,
+    ImplementationError, SignatureAgentLink, WebBotAuthError, WebBotAuthVerifier,
     components::{CoveredComponent, DerivedComponent, HTTPField},
     keyring::{Algorithm, KeyRing},
     message_signatures::SignedMessage,
@@ -77,5 +77,16 @@ fn main() {
     // Since the expiry date is in the past.
     assert!(advisory.is_expired.unwrap_or(true));
     assert!(!advisory.nonce_is_invalid.unwrap_or(true));
-    assert!(verifier.verify(&keyring, None).is_ok());
+    assert!(matches!(
+        verifier.verify(&keyring, None),
+        Err(ImplementationError::WebBotAuth(
+            WebBotAuthError::SignatureIsExpired
+        ))
+    ));
+
+    // Opt-in advisory path: full cryptographic verification still runs, and
+    // the expired window is reported as a warning instead of an error.
+    let verifier = WebBotAuthVerifier::parse(&test).unwrap();
+    let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
+    assert!(outcome.advisory.is_expired.unwrap_or(true));
 }
