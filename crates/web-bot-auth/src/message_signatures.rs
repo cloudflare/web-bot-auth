@@ -98,7 +98,7 @@ pub struct SecurityAdvisory {
     /// the message expired in the past.
     pub is_expired: Option<bool>,
     /// If the `created` tag was present on the message, whether or not
-    /// `created` is still in the future.
+    /// `created` is in the future.
     pub is_created_in_future: Option<bool>,
     /// If the `nonce` tag was present on the message, whether or not
     /// the nonce was valid, as judged py a suitable nonce validator.
