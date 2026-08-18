@@ -12,6 +12,7 @@ export const RESPONSE_COMPONENTS: Component[] = [
     name: "@authority",
     parameters: new Map([["req", true]]),
   },
+  "content-digest",
 ];
 
 export interface SignatureParams {

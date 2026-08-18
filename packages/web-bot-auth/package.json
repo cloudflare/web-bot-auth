@@ -33,7 +33,7 @@
   },
   "scripts": {
     "build": "tsdown src/index.ts src/crypto.ts --format esm,cjs --target es2021",
-    "generate-test-vectors": "npm run build && node scripts/test-vectors.ts test/test_data",
+    "generate-test-vectors": "npm run build -w http-message-sig && npm run build && node scripts/test-vectors.ts test/test_data",
     "prepublishOnly": "npm run build",
     "test": "vitest",
     "watch": "npm run build -- --watch src"
