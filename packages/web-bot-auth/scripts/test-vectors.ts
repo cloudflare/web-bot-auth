@@ -4,10 +4,14 @@
 ///
 /// It takes one positional argument: [directory] which is where the vectors should be written in JSON
 
+import type { Signer } from "http-message-sig";
+
 const { recommendedComponents, signatureHeaders } =
   await import("../dist/index.mjs");
 
 const { signerFromJWK } = await import("../dist/crypto.mjs");
+
+const { directoryResponseHeaders } = await import("http-message-sig");
 
 const crypto = await import("crypto");
 const fs = await import("fs");
@@ -68,6 +72,28 @@ interface SignatureAgentCardVector {
   error?: string;
 }
 
+interface DirectoryResponseVector {
+  name: string;
+  public_key: {
+    kty: "OKP";
+    crv: "Ed25519";
+    kid: string;
+    x: string;
+    use: "sig";
+  };
+  request: {
+    method: "GET";
+    target_url: string;
+    headers: Record<string, string>;
+  };
+  response: {
+    status: 200;
+    headers: Record<string, string>;
+    body: string;
+  };
+  signature_base: string;
+}
+
 async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
   const now = new Date("2025-01-01T00:00:00Z");
   const created = now;
@@ -126,6 +152,75 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
       signature_agent_key: signatureAgentKey,
     },
   ];
+}
+
+async function generateDirectoryResponseVector(
+  jwk: JsonWebKey
+): Promise<DirectoryResponseVector> {
+  if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || !jwk.x) {
+    throw new Error("directory response vector requires an Ed25519 JWK");
+  }
+
+  const signer = await signerFromJWK(jwk);
+  const publicKey: DirectoryResponseVector["public_key"] = {
+    kty: "OKP",
+    crv: "Ed25519",
+    kid: signer.keyid,
+    x: jwk.x,
+    use: "sig",
+  };
+  const body = JSON.stringify({ keys: [publicKey] });
+  const contentDigest = `sha-256=:${crypto.createHash("sha256").update(body).digest("base64")}:`;
+  const request = {
+    method: "GET",
+    url: "https://signature-agent.test/.well-known/http-message-signatures-directory",
+    headers: {
+      accept: "application/http-message-signatures-directory+json",
+    },
+  };
+  const response = {
+    status: 200,
+    headers: {
+      "content-type": "application/http-message-signatures-directory+json",
+      "content-digest": contentDigest,
+    },
+  };
+  let signatureBase: string | undefined;
+  const capturingSigner: Signer = {
+    keyid: signer.keyid,
+    alg: signer.alg,
+    async sign(data) {
+      signatureBase = data;
+      return signer.sign(data);
+    },
+  };
+  const signatureHeaders = await directoryResponseHeaders(
+    { request, response },
+    [capturingSigner],
+    {
+      created: new Date(1735689600000),
+      expires: new Date(4889289600000),
+    }
+  );
+  if (signatureBase === undefined) {
+    throw new Error("directory response was not signed");
+  }
+
+  return {
+    name: "ed25519",
+    public_key: publicKey,
+    request: {
+      method: "GET",
+      target_url: request.url,
+      headers: request.headers,
+    },
+    response: {
+      status: 200,
+      headers: { ...response.headers, ...signatureHeaders },
+      body,
+    },
+    signature_base: signatureBase,
+  };
 }
 
 const signatureAgentVectors: SignatureAgentVector[] = [
@@ -267,6 +362,9 @@ const vectors = [
   ...(await generateTestVectors(jwks.rsapss)),
   ...(await generateTestVectors(jwks.ed25519)),
 ];
+const directoryResponseVectors = [
+  await generateDirectoryResponseVector(jwks.ed25519),
+];
 
 for (const vector of vectors) {
   console.log(`Signature base
@@ -308,6 +406,10 @@ const writeVectors = (fileName: string, value: unknown) => {
 };
 
 writeVectors("web_bot_auth_architecture_v2.json", vectors);
+writeVectors(
+  "web_bot_auth_directory_response_v1.json",
+  directoryResponseVectors
+);
 writeVectors("web_bot_auth_signature_agent_v1.json", signatureAgentVectors);
 writeVectors("web_bot_auth_registry_v1.json", registryVectors);
 writeVectors("web_bot_auth_signature_agent_card_v1.json", cardVectors);
