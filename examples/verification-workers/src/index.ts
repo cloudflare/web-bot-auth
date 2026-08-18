@@ -19,7 +19,7 @@ import {
 	Signer,
 	SignatureAgentCard,
 	SignatureAgentEntry,
-	VerificationParams,
+	VerifierFactory,
 	directoryResponseHeaders,
 	helpers,
 	jwkToKeyID,
@@ -34,7 +34,7 @@ import { generateDebugHTML } from "./debug-html";
 import { invalidHTML, neutralHTML, validHTML } from "./index-html";
 import { proxyDirectoryRequest } from "./proxy-directory";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
-import { Ed25519Signer } from "web-bot-auth/crypto";
+import { signerFromJWK, verifier } from "web-bot-auth/crypto";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -164,39 +164,22 @@ async function fetchDirectory(entry: SignatureAgentEntry): Promise<Directory> {
 }
 
 async function getSigner(): Promise<Signer> {
-	return Ed25519Signer.fromJWK(jwk);
+	return signerFromJWK(jwk);
 }
 
-function verifyEd25519(
-	directory: Directory
-): (
-	data: string,
-	signature: Uint8Array,
-	params: VerificationParams
-) => Promise<void> {
-	return async (data, signature, _params) => {
-		void _params;
-		const key = await crypto.subtle.importKey(
-			"jwk",
-			directory.keys[0],
-			{ name: "Ed25519" },
-			true,
-			["verify"]
-		);
-
-		const encodedData = new TextEncoder().encode(data);
-
-		const isValid = await crypto.subtle.verify(
-			{ name: "Ed25519" },
-			key,
-			signature,
-			encodedData
-		);
-
-		if (!isValid) {
-			throw new Error("invalid signature");
-		}
-	};
+function verifyEd25519(directory: Directory): VerifierFactory {
+	// Awaited inside the factory, which may return a Promise so that key material can be resolved
+	// per signature rather than once up front.
+	return async (signature, context) =>
+		verifier(
+			await crypto.subtle.importKey(
+				"jwk",
+				directory.keys[0],
+				{ name: "Ed25519" },
+				true,
+				["verify"]
+			)
+		)(signature, context);
 }
 
 const SignatureValidationStatus = {
