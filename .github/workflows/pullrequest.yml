@@ -87,6 +87,6 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo publish -p web-bot-auth # will fail if we don't bump the version
-        continue-on-error: true
+        continue-on-error : hashFiles
       - run: cargo publish -p http-signature-directory # will fail if we don't bump the version
         continue-on-error: true
