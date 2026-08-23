@@ -1,0 +1,26 @@
+{"bundleID":"com.apple.mobilemail","roots_installed":0,"timestamp":"2026-08-20 18:29:14.00 +0800","os_version":"iPhone OS 16.7.16 (20H392)","incident_id":"9378C63B-80AF-41D6-83DE-BC41DF4F0CFC","share_with_app_devs":0,"bug_type":"509","app_name":"MobileMail","name":"MobileMail"}
+{
+  "deployVersion" : 210,
+  "variant" : "stackshot",
+  "incident" : "9378C63B-80AF-41D6-83DE-BC41DF4F0CFC",
+  "crashReporterKey" : "90ed8be48dcd4654f424d95bdcbfb5884ec57e71",
+  "modelCode" : "iPhone10,6",
+  "cpuType" : "ARM-64",
+  "osVersion" : {
+    "train" : "iPhone OS 16.7.16",
+    "build" : "20H392",
+    "releaseType" : "User"
+  },
+  "variantVersion" : 2,
+  "captureTime" : "2026-08-20 18:29:14.9708 +0800",
+  "pid" : 5003,
+  "roots_installed" : 0,
+  "bug_type" : "509",
+  "procName" : "MobileMail",
+  "procPath" : "\/var\/containers\/Bundle\/Application\/209ADBB4-ADC1-40F5-95AF-2010F9199348\/MobileMail.app\/MobileMail",
+  "bundleInfo" : {"CFBundleIdentifier":"com.apple.mobilemail"},
+  "termination" : {"flags":0,"code":2343432205,"namespace":"<0xA>","details":["scene-create watchdog transgression: application<com.apple.mobilemail>:5003 exhausted CPU time allowance of 9.89 seconds","ProcessVisibility: Background","ProcessState: Running","WatchdogEvent: scene-create","WatchdogVisibility: Background","WatchdogCPUStatistics: (","\"Elapsed total CPU time (seconds): 110.370 (user 110.370, system 0.000), 77% CPU\",","\"Elapsed application CPU time (seconds): 9.908, 7% CPU\"",")"]},
+  "stackshot" : {
+    "memoryStatus" : {"compressorSize":28869,"compressions":7918592,"decompressions":6167157,"busyBufferCount":0,"memoryPressureDetails":{"pagesWanted":0,"pagesReclaimed":1552},"pageSize":16384,"memoryPressure":false,"memoryPages":{"active":46589,"throttled":0,"fileBacked":38493,"wired":46400,"purgeable":458,"inactive":44241,"free":1831,"speculative":2292}},
+    "processByPid" : {
+      "0" : 
