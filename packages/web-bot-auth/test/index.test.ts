@@ -12,11 +12,20 @@ import {
   type WebBotVerifier,
 } from "../src/index";
 import { signerFromJWK, verifierFromJWK } from "../src/crypto";
-import vectors from "./test_data/web_bot_auth_architecture_v2.json";
+import vectors1 from "./test_data/web_bot_auth_architecture_v1.json";
+import vectors2 from "./test_data/web_bot_auth_architecture_v2.json";
+
+const vectors = [...vectors1, ...vectors2];
 
 const created = new Date("2025-01-01T00:00:00Z");
 const expires = new Date("2025-01-01T01:00:00Z");
 const now = new Date("2025-01-01T00:30:00Z");
+const base64Nonce =
+  "yT+sZR1glKOTemVLbmPDFwPScbB1Zj/sMNPEFZcjwJW5jK/taa7HviOXovVwiZOfrrLHS2SbLFUQBxPYZChf7g==";
+const base64UrlNonce = base64Nonce
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=+$/, "");
 const ed25519Vector = vectors.find((vector) => vector.key.kty === "OKP");
 if (ed25519Vector === undefined) throw new Error("missing Ed25519 vector");
 const ed25519Jwk: JsonWebKey = ed25519Vector.key;
@@ -57,6 +66,11 @@ describe.each(vectors)("architecture vector: $label/$key.kty", (vector) => {
     if (vector.signature_agent !== undefined) {
       headers.set("signature-agent", vector.signature_agent);
     }
+    const signatureAgentKey =
+      "signature_agent_key" in vector &&
+      typeof vector.signature_agent_key === "string"
+        ? vector.signature_agent_key
+        : undefined;
     const request = new Request(vector.target_url, { headers });
     const fields = await sign(request, {
       signer,
@@ -64,6 +78,7 @@ describe.each(vectors)("architecture vector: $label/$key.kty", (vector) => {
       expires: new Date(vector.expires_ms),
       nonce: vector.nonce,
       label: vector.label,
+      signatureAgentKey,
     });
     expect(fields.signatureInput).toBe(vector.signature_input);
 
@@ -73,7 +88,9 @@ describe.each(vectors)("architecture vector: $label/$key.kty", (vector) => {
       resolver: () => verifier,
     });
     expect(result.keyid).toBe(signer.keyid);
-    expect(result.signatureAgent?.label).toBe(vector.signature_agent_key);
+    if (signatureAgentKey !== undefined) {
+      expect(result.signatureAgent?.label).toBe(signatureAgentKey);
+    }
 
     const vectorFields: SignatureFields = {
       signature: vector.signature,
@@ -99,10 +116,31 @@ describe("nonce", () => {
     expect(fields.signatureInput).not.toContain(";nonce=");
   });
 
-  it("generates canonical unpadded base64url", () => {
+  it("generates canonical base64", () => {
     const nonce = generateNonce();
-    expect(nonce).toMatch(/^[A-Za-z0-9_-]{86}$/);
+    expect(nonce).toMatch(/^[A-Za-z0-9+/]{86}==$/);
     expect(validateNonce(nonce)).toBe(true);
+  });
+
+  it("accepts canonical base64 and base64url only", () => {
+    expect(validateNonce(base64Nonce)).toBe(true);
+    expect(validateNonce(base64UrlNonce)).toBe(true);
+    expect(validateNonce(`${base64UrlNonce}==`)).toBe(false);
+    expect(validateNonce(base64Nonce.slice(0, -2))).toBe(false);
+    expect(validateNonce(base64Nonce.replace("+", "-"))).toBe(false);
+  });
+
+  it("signs and verifies base64url compatibility nonces", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const verifier = await verifierFromJWK(ed25519Jwk);
+    const request = await signedRequest(
+      new Request("https://example.com"),
+      signer,
+      { nonce: base64UrlNonce }
+    );
+    await expect(
+      verify(request, { resolver: () => verifier, now })
+    ).resolves.toMatchObject({ nonce: base64UrlNonce });
   });
 
   it.each([
@@ -120,7 +158,7 @@ describe("nonce", () => {
         expires,
         nonce,
       })
-    ).rejects.toThrow("canonical unpadded base64url");
+    ).rejects.toThrow("canonical base64 or unpadded base64url");
   });
 });
 
@@ -204,12 +242,14 @@ describe("Signature-Agent coverage", () => {
       verify(withSignature(request, fields), { resolver, now })
     ).rejects.toMatchObject({
       message: "Verifier resolution failed",
-      cause: { message: "signature must cover signature-agent member sig1" },
+      cause: {
+        message: "signature must cover exactly one signature-agent member",
+      },
     });
     expect(resolver).not.toHaveBeenCalled();
   });
 
-  it("rejects coverage of the wrong dictionary member", async () => {
+  it("authenticates a member key independent from the signature label", async () => {
     const signer = await signerFromJWK(ed25519Jwk);
     const request = new Request("https://example.com", {
       headers: {
@@ -228,14 +268,21 @@ describe("Signature-Agent coverage", () => {
         tag: "web-bot-auth",
       },
     });
-    const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+    const verifier = await verifierFromJWK(ed25519Jwk);
+    const resolver = vi.fn(() => verifier);
     await expect(
       verify(withSignature(request, fields), { resolver, now })
-    ).rejects.toMatchObject({
-      message: "Verifier resolution failed",
-      cause: { message: "signature must cover signature-agent member sig1" },
+    ).resolves.toMatchObject({
+      signatureAgent: {
+        label: "sig2",
+        uri: "https://two.example",
+      },
     });
-    expect(resolver).not.toHaveBeenCalled();
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signatureAgent: expect.objectContaining({ label: "sig2" }),
+      })
+    );
   });
 
   it("rejects req component confusion", async () => {
@@ -278,14 +325,23 @@ describe("Signature-Agent coverage", () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
-  it("rejects legacy form", async () => {
+  it("signs and verifies legacy whole-field form", async () => {
     const signer = await signerFromJWK(ed25519Jwk);
+    const verifier = await verifierFromJWK(ed25519Jwk);
     const request = new Request("https://example.com", {
       headers: { "signature-agent": '"https://bot.example"' },
     });
-    await expect(sign(request, { signer, created, expires })).rejects.toThrow(
-      "legacy Signature-Agent"
-    );
+    const fields = await sign(request, { signer, created, expires });
+    expect(fields.signatureInput).toContain('"signature-agent"');
+    expect(fields.signatureInput).not.toContain('"signature-agent";key=');
+    await expect(
+      verify(withSignature(request, fields), {
+        resolver: () => verifier,
+        now,
+      })
+    ).resolves.toMatchObject({
+      signatureAgent: { uri: "https://bot.example", type: "directory" },
+    });
   });
 });
 

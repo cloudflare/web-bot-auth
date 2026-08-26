@@ -71,6 +71,7 @@ export interface SignOptions {
   readonly created?: Date;
   readonly nonce?: string;
   readonly label?: string;
+  readonly signatureAgentKey?: string;
   readonly target?: "@authority" | "@target-uri";
   readonly additionalComponents?: readonly SignatureComponent[];
 }
@@ -122,20 +123,22 @@ function seconds(date: Date, name: string): number {
   return Math.floor(milliseconds / 1000);
 }
 
+function base64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
 function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
+  return base64(bytes)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 }
 
-function decodeBase64Url(value: string): Uint8Array | undefined {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
-  const remainder = value.length % 4;
+function decodeBase64(value: string): Uint8Array | undefined {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const remainder = normalized.length % 4;
   if (remainder === 1) return undefined;
-  const padded =
-    value.replace(/-/g, "+").replace(/_/g, "/") +
-    "=".repeat((4 - remainder) % 4);
+  const padded = normalized + "=".repeat((4 - remainder) % 4);
   try {
     return Uint8Array.from(atob(padded), (character) =>
       character.charCodeAt(0)
@@ -148,16 +151,16 @@ function decodeBase64Url(value: string): Uint8Array | undefined {
 export function generateNonce(): string {
   const nonce = new Uint8Array(NONCE_LENGTH_IN_BYTES);
   crypto.getRandomValues(nonce);
-  return base64Url(nonce);
+  return base64(nonce);
 }
 
 export function validateNonce(nonce: unknown): nonce is string {
   if (typeof nonce !== "string") return false;
-  const decoded = decodeBase64Url(nonce);
+  const decoded = decodeBase64(nonce);
   return (
     decoded !== undefined &&
     decoded.length === NONCE_LENGTH_IN_BYTES &&
-    base64Url(decoded) === nonce
+    (base64(decoded) === nonce || base64Url(decoded) === nonce)
   );
 }
 
@@ -174,23 +177,29 @@ function requestHeader(
   return request.headers.get(name) ?? undefined;
 }
 
-function signatureAgent(
+interface SignatureAgentSelection {
+  readonly component: SignatureComponent;
+}
+
+function signingSignatureAgent(
   request: Request | RequestDescriptor,
-  label: string
-): SignatureAgentEntry | undefined {
+  key: string
+): SignatureAgentSelection | undefined {
   const header = requestHeader(request, SIGNATURE_AGENT_HEADER);
   if (header === undefined) return undefined;
   const parsed = parseSignatureAgentHeader(header);
-  if (parsed.kind !== "current") {
-    return policyError(
-      "legacy Signature-Agent cannot be covered by dictionary member"
-    );
+  if (parsed.kind === "legacy") {
+    const entry = parsed.entries[0];
+    if (entry === undefined) return policyError("Signature-Agent is empty");
+    return Object.freeze({ component: SIGNATURE_AGENT_HEADER });
   }
-  const entry = parsed.entries.find((candidate) => candidate.label === label);
+  const entry = parsed.entries.find((candidate) => candidate.label === key);
   if (entry === undefined) {
-    return policyError(`Signature-Agent has no member ${label}`);
+    return policyError(`Signature-Agent has no member ${key}`);
   }
-  return Object.freeze({ ...entry });
+  return Object.freeze({
+    component: component(SIGNATURE_AGENT_HEADER, { key }),
+  });
 }
 
 function hasExactBareTarget(
@@ -203,18 +212,43 @@ function hasExactBareTarget(
   );
 }
 
-function hasExactAgentComponent(
-  components: readonly ComponentDescriptor[],
-  label: string
-): boolean {
-  return components.some(({ name, parameters }) => {
-    const entries = Object.entries(parameters);
-    return (
-      name === SIGNATURE_AGENT_HEADER &&
-      entries.length === 1 &&
-      parameters.key === label
+function verifiedSignatureAgent(
+  request: Request | RequestDescriptor,
+  components: readonly ComponentDescriptor[]
+): SignatureAgentEntry | undefined {
+  const header = requestHeader(request, SIGNATURE_AGENT_HEADER);
+  if (header === undefined) return undefined;
+  const parsed = parseSignatureAgentHeader(header);
+  if (parsed.kind === "legacy") {
+    const covered = components.some(
+      ({ name, parameters }) =>
+        name === SIGNATURE_AGENT_HEADER && Object.keys(parameters).length === 0
     );
+    if (!covered) {
+      return policyError(`signature must cover ${SIGNATURE_AGENT_HEADER}`);
+    }
+    const entry = parsed.entries[0];
+    if (entry === undefined) return policyError("Signature-Agent is empty");
+    return Object.freeze({ ...entry });
+  }
+  const keys = components.flatMap(({ name, parameters }) => {
+    const entries = Object.entries(parameters);
+    return name === SIGNATURE_AGENT_HEADER &&
+      entries.length === 1 &&
+      typeof parameters.key === "string"
+      ? [parameters.key]
+      : [];
   });
+  if (keys.length !== 1) {
+    return policyError(
+      `signature must cover exactly one ${SIGNATURE_AGENT_HEADER} member`
+    );
+  }
+  const entry = parsed.entries.find((candidate) => candidate.label === keys[0]);
+  if (entry === undefined) {
+    return policyError(`Signature-Agent has no member ${keys[0]}`);
+  }
+  return Object.freeze({ ...entry });
 }
 
 function signingOptions(
@@ -239,13 +273,16 @@ function signingOptions(
     return policyError("created must not be after expires");
   if (options.nonce !== undefined && !validateNonce(options.nonce)) {
     return policyError(
-      "nonce must be canonical unpadded base64url encoding of 64 bytes"
+      "nonce must be canonical base64 or unpadded base64url encoding of 64 bytes"
     );
   }
-  const agent = signatureAgent(request, label);
+  const agent = signingSignatureAgent(
+    request,
+    options.signatureAgentKey ?? label
+  );
   const components: SignatureComponent[] = [options.target ?? "@authority"];
   if (agent !== undefined) {
-    components.push(component(SIGNATURE_AGENT_HEADER, { key: label }));
+    components.push(agent.component);
   }
   components.push(...(options.additionalComponents ?? []));
   return {
@@ -253,11 +290,11 @@ function signingOptions(
     components,
     parameters: {
       created,
-      expires,
       keyid: options.signer.keyid,
       alg: options.signer.algorithm,
-      tag: HTTP_MESSAGE_SIGNATURE_TAG,
+      expires,
       nonce: options.nonce,
+      tag: HTTP_MESSAGE_SIGNATURE_TAG,
     },
   };
 }
@@ -286,7 +323,7 @@ function profileCandidate(
   request: Request | RequestDescriptor,
   candidate: UntrustedSignatureCandidate
 ): UntrustedWebBotSignatureCandidate {
-  const { algorithm, parameters, components, label } = candidate;
+  const { algorithm, parameters, components } = candidate;
   if (algorithm !== "ed25519" && algorithm !== "rsa-pss-sha512") {
     return policyError("signed algorithm is missing or unsupported");
   }
@@ -306,7 +343,7 @@ function profileCandidate(
     return policyError("created must not be after expires");
   if (parameters.nonce !== undefined && !validateNonce(parameters.nonce)) {
     return policyError(
-      "nonce must be canonical unpadded base64url encoding of 64 bytes"
+      "nonce must be canonical base64 or unpadded base64url encoding of 64 bytes"
     );
   }
   if (!hasExactBareTarget(components)) {
@@ -314,12 +351,7 @@ function profileCandidate(
       "signature must cover bare @authority or bare @target-uri"
     );
   }
-  const agent = signatureAgent(request, label);
-  if (agent !== undefined && !hasExactAgentComponent(components, label)) {
-    return policyError(
-      `signature must cover ${SIGNATURE_AGENT_HEADER} member ${label}`
-    );
-  }
+  const agent = verifiedSignatureAgent(request, components);
   return Object.freeze({ keyid, algorithm, signatureAgent: agent });
 }
 

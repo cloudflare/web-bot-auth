@@ -16,10 +16,10 @@
     "target_url": "https://example.com/path/to/resource",
     "created_ms": 1735689600000,
     "expires_ms": 4889289600000,
-    "nonce": "JojDFWJ90jf-gZhdKeTyJYsu1XvNPZSFAGhvYq5SuV3gneOEUAhq-xl792WGuD1W-Dr6NRmx-m-t06NsYnL4iA",
+    "nonce": "JojDFWJ90jf+gZhdKeTyJYsu1XvNPZSFAGhvYq5SuV3gneOEUAhq+xl792WGuD1W+Dr6NRmx+m+t06NsYnL4iA==",
     "label": "sig1",
-    "signature": "sig1=:Lmhur0yr7IiAi4EX4TXUPKYpYEEgMZjRj6ZnV4oQOib2p2ahJzImL63Ro+4eBMbkfxJJalpGF8Pmbv7OGIVxX/XSpo8LBcLWI8ws/c+LX0EFk2JZ3sAxj+qlr3ZojI7/e1JgRAMWDd50ozuzpXxiS4DRJStxXjA7HqsvT0fvGjyYO4uNg8e51X3zBPY+qnT5ljaHAqOVf0rQiTQNJjrrBs2s876kXXuOVSY8M5OhaXd/1F45gna6DiWJfKsFqLMNjGQVcOFsvQvUX3OxzYzh+Vj69mkOjxei3eeRfIgH+zdey/l75ht4q5c3X99Hh8raH6NDBCDHdzBMewMM9vrRGg==:",
-    "signature_input": "sig1=(\"@authority\");created=1735689600;expires=4889289600;keyid=\"oD0HwocPBSfpNy5W3bpJeyFGY_IQ_YpqxSjQ3Yd-CLA\";alg=\"rsa-pss-sha512\";tag=\"web-bot-auth\";nonce=\"JojDFWJ90jf-gZhdKeTyJYsu1XvNPZSFAGhvYq5SuV3gneOEUAhq-xl792WGuD1W-Dr6NRmx-m-t06NsYnL4iA\""
+    "signature": "sig1=:hWPaj85MWQiRkzU4jnIKvdPQiDfMCPIoxOP8nZveNc3aFQ7r/UmXWCwGNImw588iRvTFey5TR3fVEgnXpcttlyK+u5pN831z9Wlr+IMNfub4uEM3SuO+SKFygJZyLG0pf7OAiRcU4C0gyx1BS/+z9ydQTRzDLr88wCkBBRqwGRrSi8HTwxkqg1jugobh93hcnU6gV8MK1n+VnhRprIgl2RQSO6q5cfbB4OS8C4t/8ndW0lYmP2SWzKZJXnpX5Wrj17PuLqnVW6MO8pJnLAMXNvxUdx32KHeq/cHFrzZazZsua3UOoP+k+niHwoQ8bBWj1Vi4mM1mYJK+fk366cCLsQ==:",
+    "signature_input": "sig1=(\"@authority\");created=1735689600;keyid=\"oD0HwocPBSfpNy5W3bpJeyFGY_IQ_YpqxSjQ3Yd-CLA\";alg=\"rsa-pss-sha512\";expires=4889289600;nonce=\"JojDFWJ90jf+gZhdKeTyJYsu1XvNPZSFAGhvYq5SuV3gneOEUAhq+xl792WGuD1W+Dr6NRmx+m+t06NsYnL4iA==\";tag=\"web-bot-auth\""
   },
   {
     "key": {
@@ -38,12 +38,12 @@
     "target_url": "https://example.com/path/to/resource",
     "created_ms": 1735689600000,
     "expires_ms": 4889289600000,
-    "nonce": "wcfPQPh7SzkvrIVvhD00vNk9PkxJNY2NVbYl2PVBB4zmUoluSwE7W6bPtF60QA3k8g06FU7PPCD-J58YofY1zg",
+    "nonce": "wcfPQPh7SzkvrIVvhD00vNk9PkxJNY2NVbYl2PVBB4zmUoluSwE7W6bPtF60QA3k8g06FU7PPCD+J58YofY1zg==",
     "label": "sig2",
-    "signature": "sig2=:mce5amrvO7fPWdBALGJ1BNGY2o8TAsYYyORIrSjSr5lG9BEki27155RALSPTJceID5oApUm20x1DLfGuL83hZwK+z+OxQLuikDQS8eXah49LgMM8OHXA/HtCKUQLS+p8yPgxypLOwbQYkzN6lhLBbh3/SmY1uya6FbSrBeNB6gCnBnLeFQmp2XljOU1+8sxJKKOx1g4o5PUYMlqLflYh49//UgFURX8MA/+C7ISokCiq2SA9Ai+6+ORCAoleZxutMDYX5rT+hsaBgckqOOTeSzX+vGkpDXV1FUVOhEKxQaJftNZY+O7JfpH34ui6xJABQRkzkJFZxU8Jyms459u6vw==:",
-    "signature_input": "sig2=(\"@authority\" \"signature-agent\";key=\"sig2\");created=1735689600;expires=4889289600;keyid=\"oD0HwocPBSfpNy5W3bpJeyFGY_IQ_YpqxSjQ3Yd-CLA\";alg=\"rsa-pss-sha512\";tag=\"web-bot-auth\";nonce=\"wcfPQPh7SzkvrIVvhD00vNk9PkxJNY2NVbYl2PVBB4zmUoluSwE7W6bPtF60QA3k8g06FU7PPCD-J58YofY1zg\"",
-    "signature_agent": "sig2=\"https://signature-agent.test\"",
-    "signature_agent_key": "sig2"
+    "signature": "sig2=:gHzpLNeHaHIO19NaJH9YMW5dcVSi2s0wOMBr6p18vcofS106sfC4KBIS0/szPlBBd1vIcyQ88B6CTEWIhRAiVrb9zfX0mx1aG12CSGWcYkSirHeyTxhbuJvXd27ed6skWoy4PjXItq38936ivUQjfdIwXh1aX6HxkAC3vRnEdSNfntkLWeEuIQ5BLIOBGE39fSwg27Qjq6OVWYas/9/aFUr3HA34MXWYdp+//cvlEKDp3kRoLOw9ro0AOr6srHrTeEtxon2afcws1aZVSlPdd2fZSEIGmw9HAHLDCEkFTERu1gH2k/zIEqgy7CAYXI9E5slog0cLg/Vc6+f8gih33g==:",
+    "signature_input": "sig2=(\"@authority\" \"signature-agent\";key=\"agent2\");created=1735689600;keyid=\"oD0HwocPBSfpNy5W3bpJeyFGY_IQ_YpqxSjQ3Yd-CLA\";alg=\"rsa-pss-sha512\";expires=4889289600;nonce=\"wcfPQPh7SzkvrIVvhD00vNk9PkxJNY2NVbYl2PVBB4zmUoluSwE7W6bPtF60QA3k8g06FU7PPCD+J58YofY1zg==\";tag=\"web-bot-auth\"",
+    "signature_agent": "agent2=\"https://signature-agent.test\"",
+    "signature_agent_key": "agent2"
   },
   {
     "key": {
@@ -56,10 +56,10 @@
     "target_url": "https://example.com/path/to/resource",
     "created_ms": 1735689600000,
     "expires_ms": 4889289600000,
-    "nonce": "zIW8-cdmA3vdYagbxojpONwa_l0EKJ_O3_wD486VvsQjO_RxPaSt6ZxvQaMcQzNnqKN_mQ6hpGiFro2L2qkz5A",
+    "nonce": "zIW8+cdmA3vdYagbxojpONwa/l0EKJ/O3/wD486VvsQjO/RxPaSt6ZxvQaMcQzNnqKN/mQ6hpGiFro2L2qkz5A==",
     "label": "sig1",
-    "signature": "sig1=:JNsG8gjlB7dYm+2I0mJHQSaRGHjGfhM5y63KZcjpKUHoETaGrYlngtQUmDYU+lAZtIXX6zQBuHUGDciah3+ZDA==:",
-    "signature_input": "sig1=(\"@authority\");created=1735689600;expires=4889289600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";tag=\"web-bot-auth\";nonce=\"zIW8-cdmA3vdYagbxojpONwa_l0EKJ_O3_wD486VvsQjO_RxPaSt6ZxvQaMcQzNnqKN_mQ6hpGiFro2L2qkz5A\""
+    "signature": "sig1=:QKN4fTdIYfh82fvoZCQiQA1weuozfCS/Led2zTMbewMMqH8PI2Wsy/5c4ao6B6D09nraNQdBNOADg8aM1MqfCg==:",
+    "signature_input": "sig1=(\"@authority\");created=1735689600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=4889289600;nonce=\"zIW8+cdmA3vdYagbxojpONwa/l0EKJ/O3/wD486VvsQjO/RxPaSt6ZxvQaMcQzNnqKN/mQ6hpGiFro2L2qkz5A==\";tag=\"web-bot-auth\""
   },
   {
     "key": {
@@ -72,11 +72,11 @@
     "target_url": "https://example.com/path/to/resource",
     "created_ms": 1735689600000,
     "expires_ms": 4889289600000,
-    "nonce": "n9p433xm-NJ3ph3upfBIGmsuwHw387YV7Q_F-6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA",
+    "nonce": "n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA==",
     "label": "sig2",
-    "signature": "sig2=:9ua4wEcEipWoa4cFkrMimNsCDHsVsMUbppe3NJYUnQOLoaLfAwrYpcEUW1JVZxFuor+0zZ2RLdhf0AFhpo44Bw==:",
-    "signature_input": "sig2=(\"@authority\" \"signature-agent\";key=\"sig2\");created=1735689600;expires=4889289600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";tag=\"web-bot-auth\";nonce=\"n9p433xm-NJ3ph3upfBIGmsuwHw387YV7Q_F-6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA\"",
-    "signature_agent": "sig2=\"https://signature-agent.test\"",
-    "signature_agent_key": "sig2"
+    "signature": "sig2=:RdNFx5Bj6au3YgAMQL/RzmUlZE8QZLIaXGRpw985hWnwPfMxT228NMk6ehRS1PSl4e8PhbNZACSanGdhEwYCCg==:",
+    "signature_input": "sig2=(\"@authority\" \"signature-agent\";key=\"agent2\");created=1735689600;keyid=\"poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U\";alg=\"ed25519\";expires=4889289600;nonce=\"n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA==\";tag=\"web-bot-auth\"",
+    "signature_agent": "agent2=\"https://signature-agent.test\"",
+    "signature_agent_key": "agent2"
   }
 ]
