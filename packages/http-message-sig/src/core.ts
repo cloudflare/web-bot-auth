@@ -541,17 +541,7 @@ function extractComponentValue(
   if (typeof key !== "string") {
     return fail(SignatureErrorCode.InvalidComponent, "key must be a string");
   }
-  let dictionary: Dictionary;
-  try {
-    dictionary = parseStrictDictionary(fieldValue, value.name);
-  } catch (error) {
-    if (error instanceof SignatureError) throw error;
-    return fail(
-      SignatureErrorCode.MalformedField,
-      `Malformed field ${value.name}`,
-      error
-    );
-  }
+  const dictionary = parseRfc8941Dictionary(fieldValue, `field ${value.name}`);
   const member = dictionary.get(key);
   if (member === undefined) {
     return fail(
@@ -725,13 +715,49 @@ function parsedParameterCount(dictionary: Dictionary): number {
   return count;
 }
 
-function parseStrictDictionary(input: string, name: string): Dictionary {
+function assertNoRfc9651Syntax(input: string, name: string): void {
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quoted && character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (
+      !quoted &&
+      (character === "@" || (character === "%" && input[index + 1] === '"'))
+    ) {
+      fail(
+        SignatureErrorCode.UnsupportedFeature,
+        `${name} uses an RFC 9651-only value`
+      );
+    }
+  }
+}
+
+function parseRfc8941Dictionary(input: string, name: string): Dictionary {
+  assertNoRfc9651Syntax(input, name);
   let dictionary: Dictionary;
   try {
     dictionary = parseDictionary(input);
   } catch (error) {
     return fail(SignatureErrorCode.MalformedField, `Malformed ${name}`, error);
   }
+  assertRfc8941Dictionary(dictionary, name);
+  return dictionary;
+}
+
+function parseStrictDictionary(input: string, name: string): Dictionary {
+  const dictionary = parseRfc8941Dictionary(input, name);
   if (topLevelMemberCount(input) !== dictionary.size) {
     return fail(
       SignatureErrorCode.DuplicateLabel,
@@ -765,7 +791,6 @@ function assertRfc8941Dictionary(dictionary: Dictionary, name: string): void {
 
 function parseSignatureDictionary(input: string): Dictionary {
   const dictionary = parseStrictDictionary(input, "Signature");
-  assertRfc8941Dictionary(dictionary, "Signature");
   for (const member of dictionary.values()) {
     if (
       isInnerList(member) ||
@@ -783,7 +808,6 @@ function parseSignatureDictionary(input: string): Dictionary {
 
 function parseSignatureInputDictionary(input: string): Dictionary {
   const dictionary = parseStrictDictionary(input, "Signature-Input");
-  assertRfc8941Dictionary(dictionary, "Signature-Input");
   for (const member of dictionary.values()) {
     if (!isInnerList(member)) {
       fail(

@@ -170,6 +170,88 @@ describe("createSignature", () => {
     );
   });
 
+  it("uses the last duplicate Structured Field member and parameter", async () => {
+    let base = "";
+    await createSignature(
+      {
+        ...request,
+        fields: [
+          ...request.fields,
+          { name: "Example", value: "a=1, a=2, b=3;p=old;p=new" },
+        ],
+      },
+      {
+        components: [
+          component("example", { key: "a" }),
+          component("example", { key: "b" }),
+        ],
+        parameters: {},
+        signer: {
+          algorithm: "test-alg",
+          sign(data) {
+            base = new TextDecoder().decode(data);
+            return new Uint8Array();
+          },
+        },
+      }
+    );
+
+    expect(base).toBe(
+      [
+        '"example";key="a": 2',
+        '"example";key="b": 3;p=new',
+        '"@signature-params": ("example";key="a" "example";key="b")',
+      ].join("\n")
+    );
+  });
+
+  it.each(["a=@1, a=2", "a=1;p=@1;p=2", 'a=%"old", a=2'])(
+    "rejects overwritten RFC 9651 syntax in %s",
+    async (value) => {
+      await expect(
+        createSignature(
+          {
+            ...request,
+            fields: [...request.fields, { name: "Example", value }],
+          },
+          {
+            components: [component("example", { key: "a" })],
+            parameters: {},
+            signer: {
+              algorithm: "test-alg",
+              sign: () => new Uint8Array(),
+            },
+          }
+        )
+      ).rejects.toMatchObject({ code: SignatureErrorCode.UnsupportedFeature });
+    }
+  );
+
+  it("does not confuse RFC 8941 strings and tokens with extensions", async () => {
+    await expect(
+      createSignature(
+        {
+          ...request,
+          fields: [
+            ...request.fields,
+            { name: "Example", value: 'a="user@example.com", b=percent%token' },
+          ],
+        },
+        {
+          components: [
+            component("example", { key: "a" }),
+            component("example", { key: "b" }),
+          ],
+          parameters: {},
+          signer: {
+            algorithm: "test-alg",
+            sign: () => new Uint8Array(),
+          },
+        }
+      )
+    ).resolves.toBeDefined();
+  });
+
   it("preserves descriptor method case and uses ? for an absent query", async () => {
     let base = "";
     await createSignature(
