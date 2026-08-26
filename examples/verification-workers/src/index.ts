@@ -13,28 +13,35 @@
 // limitations under the License.
 
 import {
-	Directory,
 	HTTP_MESSAGE_SIGNATURES_DIRECTORY,
-	MediaType,
-	Signer,
 	SignatureAgentCard,
 	SignatureAgentEntry,
-	VerificationParams,
-	directoryResponseHeaders,
-	helpers,
-	jwkToKeyID,
 	parseRegistry,
 	parseSignatureAgentCard,
-	parseSignatureAgentHeader,
-	recommendedComponents,
-	signatureHeaders,
+	sign,
 	verify,
+	type WebBotSigner,
 } from "web-bot-auth";
+import { signerFromJWK, verifierFromJWK } from "web-bot-auth/crypto";
+import {
+	component,
+	createSignature,
+	type FieldOccurrence,
+	type RequestDescriptor,
+	type ResponseDescriptor,
+} from "http-message-sig";
 import { generateDebugHTML } from "./debug-html";
 import { invalidHTML, neutralHTML, validHTML } from "./index-html";
 import { proxyDirectoryRequest } from "./proxy-directory";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
-import { Ed25519Signer } from "web-bot-auth/crypto";
+
+const DIRECTORY_MEDIA_TYPE =
+	"application/http-message-signatures-directory+json";
+
+interface Directory {
+	readonly keys: readonly JsonWebKey[];
+	readonly purpose: string;
+}
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -57,6 +64,7 @@ function jsonWebKeyFromUnknown(value: unknown): JsonWebKey {
 		d: typeof value.d === "string" ? value.d : undefined,
 		e: typeof value.e === "string" ? value.e : undefined,
 		kty: value.kty,
+		kid: typeof value.kid === "string" ? value.kid : undefined,
 		n: typeof value.n === "string" ? value.n : undefined,
 		x: typeof value.x === "string" ? value.x : undefined,
 		y: typeof value.y === "string" ? value.y : undefined,
@@ -87,12 +95,9 @@ function directoryFromUnknown(value: unknown): Directory {
 }
 
 async function getExampleDirectory(): Promise<Directory> {
+	const signer = await getSigner();
 	const key = {
-		kid: await jwkToKeyID(
-			jwk,
-			helpers.WEBCRYPTO_SHA256,
-			helpers.BASE64URL_DECODE
-		),
+		kid: signer.keyid,
 		kty: jwk.kty,
 		crv: jwk.crv,
 		x: jwk.x,
@@ -115,14 +120,21 @@ function getSignatureAgentCard(env: Env): SignatureAgentCard {
 		client_uri: origin,
 		logo_uri: `${origin}/favicon.png`,
 		contacts: [],
-		"expected-user-agent": "Mozilla/5.0 ExampleBot",
-		"rfc9309-product-token": "ExampleBot",
-		"rfc9309-compliance": ["User-Agent", "Allow", "Disallow", "Content-Usage"],
-		trigger: "fetcher",
-		purpose: "example",
-		"rate-control": "429",
 		jwks_uri: `${origin}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`,
 		ips_uri: `${origin}/ips.json`,
+		web_bot_auth: {
+			"expected-user-agent": "Mozilla/5.0 ExampleBot",
+			"rfc9309-product-token": "ExampleBot",
+			"rfc9309-compliance": [
+				"User-Agent",
+				"Allow",
+				"Disallow",
+				"Content-Usage",
+			],
+			trigger: "fetcher",
+			purpose: "example",
+			"rate-control": "429",
+		},
 	});
 }
 
@@ -163,40 +175,64 @@ async function fetchDirectory(entry: SignatureAgentEntry): Promise<Directory> {
 	return directoryFromUnknown(await fetchJSON(card.jwks_uri));
 }
 
-async function getSigner(): Promise<Signer> {
-	return Ed25519Signer.fromJWK(jwk);
+async function getSigner(): Promise<WebBotSigner> {
+	return signerFromJWK(jwk);
 }
 
-function verifyEd25519(
-	directory: Directory
-): (
-	data: string,
-	signature: Uint8Array,
-	params: VerificationParams
-) => Promise<void> {
-	return async (data, signature, _params) => {
-		void _params;
-		const key = await crypto.subtle.importKey(
-			"jwk",
-			directory.keys[0],
-			{ name: "Ed25519" },
-			true,
-			["verify"]
-		);
+async function resolveVerifier(directory: Directory, keyid: string) {
+	const key = directory.keys.find((candidate) => candidate.kid === keyid);
+	if (key === undefined) throw new Error(`unknown key ${keyid}`);
+	return verifierFromJWK(key);
+}
 
-		const encodedData = new TextEncoder().encode(data);
+function fields(headers: Headers): FieldOccurrence[] {
+	const output: FieldOccurrence[] = [];
+	headers.forEach((value, name) => output.push({ name, value }));
+	return output;
+}
 
-		const isValid = await crypto.subtle.verify(
-			{ name: "Ed25519" },
-			key,
-			signature,
-			encodedData
-		);
+function base64(bytes: Uint8Array): string {
+	return btoa(String.fromCharCode(...bytes));
+}
 
-		if (!isValid) {
-			throw new Error("invalid signature");
-		}
+async function signDirectoryResponse(
+	request: Request,
+	response: Response,
+	signer: WebBotSigner
+) {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		await response.clone().arrayBuffer()
+	);
+	response.headers.set(
+		"content-digest",
+		`sha-256=:${base64(new Uint8Array(digest))}:`
+	);
+	const requestDescriptor: RequestDescriptor = {
+		kind: "request",
+		method: request.method,
+		targetUri: request.url,
+		fields: fields(request.headers),
 	};
+	const responseDescriptor: ResponseDescriptor = {
+		kind: "response",
+		status: response.status,
+		fields: fields(response.headers),
+		request: requestDescriptor,
+	};
+	const created = Math.floor(Date.now() / 1000);
+	return createSignature(responseDescriptor, {
+		label: "binding0",
+		signer,
+		components: [component("@authority", { req: true }), "content-digest"],
+		parameters: {
+			created,
+			expires: created + 300,
+			keyid: signer.keyid,
+			alg: signer.algorithm,
+			tag: "http-message-signatures-directory",
+		},
+	});
 }
 
 const SignatureValidationStatus = {
@@ -214,35 +250,25 @@ async function verifySignature(
 		return SignatureValidationStatus.NEUTRAL;
 	}
 
-	const signatureAgent = request.headers.get("Signature-Agent");
-	let directory: Directory;
 	try {
-		if (signatureAgent) {
-			const parsed = parseSignatureAgentHeader(signatureAgent);
-			const entry = parsed.entries[0];
-			if (entry === undefined) {
-				throw new Error("Signature-Agent header has no entries");
-			}
-			if (new URL(entry.uri).origin === new URL(env.SIGNATURE_AGENT).origin) {
-				directory = await getExampleDirectory();
-			} else {
-				directory = await fetchDirectory(entry);
-			}
-		} else {
-			directory = await getExampleDirectory();
-		}
-	} catch (e) {
-		return SignatureValidationStatus.INVALID(errorMessage(e));
-	}
-
-	try {
-		await verify(request, verifyEd25519(directory));
+		await verify(request, {
+			async resolver(candidate) {
+				const entry = candidate.signatureAgent;
+				const directory =
+					entry === undefined ||
+					new URL(entry.uri).origin === new URL(env.SIGNATURE_AGENT).origin
+						? await getExampleDirectory()
+						: await fetchDirectory(entry);
+				return resolveVerifier(directory, candidate.keyid);
+			},
+		});
 	} catch (e) {
 		return SignatureValidationStatus.INVALID(errorMessage(e));
 	}
 
 	console.log("Signature verified successfully");
-	if (signatureAgent) {
+	const signatureAgent = request.headers.get("Signature-Agent");
+	if (signatureAgent !== null) {
 		console.log(`Signature-Agent: "${signatureAgent}"`);
 	}
 
@@ -273,17 +299,17 @@ export default {
 			const directory = await getExampleDirectory();
 			const response = new Response(JSON.stringify(directory), {
 				headers: {
-					"content-type": MediaType.HTTP_MESSAGE_SIGNATURES_DIRECTORY,
+					"content-type": DIRECTORY_MEDIA_TYPE,
 				},
 			});
 
-			const signedHeaders = await directoryResponseHeaders(
-				{ request, response },
-				[await getSigner()],
-				{ created: new Date(), expires: new Date(Date.now() + 300_000) }
+			const signedHeaders = await signDirectoryResponse(
+				request,
+				response,
+				await getSigner()
 			);
-			response.headers.set("Signature", signedHeaders.Signature);
-			response.headers.set("Signature-Input", signedHeaders["Signature-Input"]);
+			response.headers.set("Signature", signedHeaders.signature);
+			response.headers.set("Signature-Input", signedHeaders.signatureInput);
 			return response;
 		}
 
@@ -324,15 +350,16 @@ export default {
 		const request = new Request(env.TARGET_URL, { headers });
 		const created = new Date(ctx.scheduledTime);
 		const expires = new Date(created.getTime() + 300_000);
-		const signedHeaders = await signatureHeaders(request, await getSigner(), {
-			components: recommendedComponents("sig1"),
+		const signedHeaders = await sign(request, {
+			signer: await getSigner(),
 			created,
 			expires,
 		});
 		await fetch(
 			new Request(request.url, {
 				headers: {
-					...signedHeaders,
+					Signature: signedHeaders.signature,
+					"Signature-Input": signedHeaders.signatureInput,
 					...headers,
 				},
 			})

@@ -16,8 +16,8 @@ TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-h
 
 ## Features
 
-- JWK Thumbprint pre-compute
-- JWK Thumbprint when passing a hash and encoding function
+- Web Bot Auth request signing and verification policy
+- Ed25519 and RSA-PSS/SHA-512 JWK signers and verifiers
 - `Signature-Agent`, registry, and Signature Agent Card parsers
 - TypeScript types
 
@@ -33,7 +33,7 @@ To help debug `web-both-auth` HTTPS requests, Cloudflare Research provides a tes
 ### Signing
 
 ```typescript
-import { recommendedComponents, signatureHeaders } from "web-bot-auth";
+import { generateNonce, sign } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 
 const signatureAgent = 'sig1="https://signature-agent.test";type=directory';
@@ -46,28 +46,26 @@ const request = new Request("https://example.com", {
 const RFC_9421_ED25519_TEST_KEY = {
   kty: "OKP",
   crv: "Ed25519",
+  alg: "EdDSA",
   kid: "test-key-ed25519",
   d: "n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU",
   x: "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
 };
 
 const now = new Date();
-const headers = await signatureHeaders(
-  request,
-  await signerFromJWK(RFC_9421_ED25519_TEST_KEY),
-  {
-    created: now,
-    components: recommendedComponents("sig1"),
-    expires: new Date(now.getTime() + 300_000), // now + 5 min
-  }
-);
+const fields = await sign(request, {
+  signer: await signerFromJWK(RFC_9421_ED25519_TEST_KEY),
+  created: now,
+  expires: new Date(now.getTime() + 300_000),
+  nonce: generateNonce(),
+});
 
 // Et voila! Here is our signed request.
 const signedRequest = new Request("https://example.com", {
   headers: {
-    Signature: headers["Signature"],
+    Signature: fields.signature,
     "Signature-Agent": signatureAgent,
-    "Signature-Input": headers["Signature-Input"],
+    "Signature-Input": fields.signatureInput,
   },
 });
 ```
@@ -82,6 +80,7 @@ import { verifierFromJWK } from "web-bot-auth/crypto";
 const RFC_9421_ED25519_TEST_KEY = {
   kty: "OKP",
   crv: "Ed25519",
+  alg: "EdDSA",
   kid: "test-key-ed25519",
   x: "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
 };
@@ -89,13 +88,23 @@ const RFC_9421_ED25519_TEST_KEY = {
 // Reusing the incoming request signed in the above section
 const signedRequest = new Request("https://example.com", {
   headers: {
-    Signature: headers["Signature"],
+    Signature: fields.signature,
     "Signature-Agent": signatureAgent,
-    "Signature-Input": headers["Signature-Input"],
+    "Signature-Input": fields.signatureInput,
   },
 });
 
-await verify(signedRequest, await verifierFromJWK(RFC_9421_ED25519_TEST_KEY));
+const verifier = await verifierFromJWK(RFC_9421_ED25519_TEST_KEY);
+const authenticated = await verify(signedRequest, {
+  // Resolve only from trusted local configuration. The candidate is untrusted.
+  resolver: (candidate) => {
+    if (candidate.keyid !== verifier.keyid) throw new Error("unknown key");
+    return verifier;
+  },
+  validate: ({ nonce }) => {
+    // Atomically reject a nonce already present in your replay cache.
+  },
+});
 ```
 
 ## Security Considerations

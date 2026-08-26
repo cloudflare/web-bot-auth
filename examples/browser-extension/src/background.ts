@@ -1,33 +1,38 @@
-import {
-  Algorithm,
-  signatureHeadersSync,
-  helpers,
-  jwkToKeyID,
-  recommendedComponents,
-} from "web-bot-auth";
+import { jwkToKeyID, signSync, type WebBotSignerSync } from "web-bot-auth";
 import _sodium from "libsodium-wrappers";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 
-// THIS IS DETERMINISTIC AND BASED ON THE KEY MATERIAL
-let KEY_ID = "not-set-yet";
-jwkToKeyID(jwk, helpers.WEBCRYPTO_SHA256, helpers.BASE64URL_DECODE).then(
-  (kid) => (KEY_ID = kid)
+function base64Url(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+await _sodium.ready;
+const KEY_ID = await jwkToKeyID(
+  jwk,
+  (value) => crypto.subtle.digest("SHA-256", value),
+  base64Url
 );
 
 const MAX_AGE_IN_MS = 1000 * 60 * 60; // 1 hour
 const SIGNATURE_AGENT =
   "https://http-message-signatures-example.research.cloudflare.com";
 
-class Ed25519Signer {
-  public alg: Algorithm = "ed25519";
-  public keyid: string;
+class Ed25519Signer implements WebBotSignerSync {
+  public readonly algorithm = "ed25519";
+  public readonly keyid = KEY_ID;
   private privateKey: Uint8Array<ArrayBuffer>;
 
-  constructor(public jwk: JsonWebKey) {
+  constructor(jwk: JsonWebKey) {
     const sodium = _sodium;
+    if (jwk.d === undefined || jwk.x === undefined) {
+      throw new Error("Ed25519 JWK must contain d and x");
+    }
 
     // Base64URL decode helper
-    const base64urlDecode = (str) =>
+    const base64urlDecode = (str: string) =>
       sodium.from_base64(str, sodium.base64_variants.URLSAFE_NO_PADDING);
 
     // Decode keys
@@ -40,15 +45,11 @@ class Ed25519Signer {
     fullSecretKey.set(publicKey, 32);
 
     this.privateKey = fullSecretKey;
-
-    // NOTE: this MUST be computed from the public key bytes. It just so happen Chrome does not easily allow to perform a sha256 synchronously
-    this.keyid = KEY_ID;
   }
 
-  signSync(data: string): Uint8Array {
+  sign(data: Uint8Array): Uint8Array {
     const sodium = _sodium;
-    const message = sodium.from_string(data);
-    const signedMessage = sodium.crypto_sign(message, this.privateKey);
+    const signedMessage = sodium.crypto_sign(data, this.privateKey);
     return signedMessage.slice(0, sodium.crypto_sign_BYTES);
   }
 }
@@ -60,25 +61,28 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
       value: `sig1="${SIGNATURE_AGENT}";type=directory`,
     });
 
+    const headers = new Headers();
+    for (const header of details.requestHeaders ?? []) {
+      if (header.value !== undefined) headers.append(header.name, header.value);
+    }
     const request = new Request(details.url, {
       method: details.method,
-      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
-      headers: details.requestHeaders?.map((h) => [h.name, h.value!])!,
+      headers,
     });
     const now = new Date();
-    const headers = signatureHeadersSync(request, new Ed25519Signer(jwk), {
-      components: recommendedComponents("sig1"),
+    const signature = signSync(request, {
+      signer: new Ed25519Signer(jwk),
       created: now,
       expires: new Date(now.getTime() + MAX_AGE_IN_MS),
     });
 
     details.requestHeaders?.push({
       name: "Signature",
-      value: headers["Signature"],
+      value: signature.signature,
     });
     details.requestHeaders?.push({
       name: "Signature-Input",
-      value: headers["Signature-Input"],
+      value: signature.signatureInput,
     });
 
     return { requestHeaders: details.requestHeaders };

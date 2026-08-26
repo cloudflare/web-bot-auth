@@ -1,234 +1,22 @@
-import * as httpsig from "http-message-sig";
-export {
-  HTTP_MESSAGE_SIGNATURES_DIRECTORY,
-  type Algorithm,
-  MediaType,
-  type SignatureHeaders,
+import {
+  component,
+  createSignature,
+  createSignatureSync,
+  SignatureError,
+  SignatureErrorCode,
+  verifySignature,
+  type ComponentDescriptor,
+  type RequestDescriptor,
+  type SignatureComponent,
+  type SignatureFields,
   type Signer,
   type SignerSync,
-  type SignOptions,
-  type SignSyncOptions,
-  Tag,
-  directoryResponseHeaders,
+  type UntrustedSignatureCandidate,
+  type VerifiedSignature,
+  type Verifier,
 } from "http-message-sig";
-export { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
-
-import { b64Tou8, u8ToB64 } from "./base64";
-export { helpers } from "./crypto";
-
-export const HTTP_MESSAGE_SIGNATURE_TAG = "web-bot-auth";
-export const SIGNATURE_AGENT_HEADER = "signature-agent";
-export const REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT: httpsig.Component[] = [
-  "@authority",
-];
-export const REQUEST_COMPONENTS: httpsig.Component[] = [
-  "@authority",
-  SIGNATURE_AGENT_HEADER,
-];
-export const NONCE_LENGTH_IN_BYTES = 64;
-
-export interface SignatureParams {
-  created: Date;
-  expires: Date;
-  nonce?: string;
-  key?: string;
-  components?: httpsig.Component[];
-}
-
-export interface VerificationParams {
-  keyid: string;
-  created: Date;
-  expires: Date;
-  tag: typeof HTTP_MESSAGE_SIGNATURE_TAG;
-  nonce?: string;
-}
-
-export function generateNonce(): string {
-  const nonceBytes = new Uint8Array(NONCE_LENGTH_IN_BYTES);
-  crypto.getRandomValues(nonceBytes);
-  return u8ToB64(nonceBytes);
-}
-
-export function validateNonce(nonce: string): boolean {
-  try {
-    return b64Tou8(nonce).length === NONCE_LENGTH_IN_BYTES;
-  } catch {
-    return false;
-  }
-}
-
-export function recommendedComponents(
-  signatureAgentKey?: string
-): httpsig.Component[] {
-  if (signatureAgentKey) {
-    return [
-      "@authority",
-      { header: SIGNATURE_AGENT_HEADER, key: signatureAgentKey },
-    ];
-  }
-  return ["@authority"];
-}
-
-function getSigningOptions<
-  T extends
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
->(
-  message: T,
-  params: SignatureParams
-): Omit<httpsig.SignOptions | httpsig.SignSyncOptions, "signer" | "keyid"> {
-  if (params.created.getTime() > params.expires.getTime()) {
-    throw new Error("created should happen before expires");
-  }
-  // Nonce should be a base64 encoded 64-byte array. We should check it
-  let nonce = params.nonce;
-  if (!nonce) {
-    nonce = generateNonce();
-  } else {
-    if (!validateNonce(nonce)) {
-      throw new Error("nonce is not a valid uint32");
-    }
-  }
-  const signatureAgent = httpsig.extractHeader(
-    httpsig.resolveMessageKind(message),
-    SIGNATURE_AGENT_HEADER
-  );
-  let components: httpsig.Component[];
-  if (!params.components) {
-    // `extractHeader` returns "" instead of throwing or null when the header does not exist
-    if (!signatureAgent) {
-      components = REQUEST_COMPONENTS_WITHOUT_SIGNATURE_AGENT;
-    } else {
-      components = REQUEST_COMPONENTS;
-    }
-  } else {
-    if (
-      signatureAgent &&
-      !params.components.some((c) => {
-        if (typeof c === "string") {
-          return c === SIGNATURE_AGENT_HEADER;
-        }
-        if ("header" in c) {
-          return c.header === SIGNATURE_AGENT_HEADER;
-        }
-        return c.name === SIGNATURE_AGENT_HEADER;
-      })
-    ) {
-      throw new Error(
-        `${SIGNATURE_AGENT_HEADER} is required in params.components when included as a header param`
-      );
-    }
-    components = params.components;
-  }
-
-  return {
-    components,
-    created: params.created,
-    expires: params.expires,
-    nonce,
-    key: params.key,
-    tag: HTTP_MESSAGE_SIGNATURE_TAG,
-  };
-}
-
-export function signatureHeaders<
-  T extends
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
->(
-  message: T,
-  signer: httpsig.Signer,
-  params: SignatureParams
-): Promise<httpsig.SignatureHeaders> {
-  return httpsig.signatureHeaders(message, {
-    signer,
-    keyid: signer.keyid,
-    ...getSigningOptions(message, params),
-  });
-}
-
-export function signatureHeadersSync<
-  T extends
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
->(
-  message: T,
-  signer: httpsig.SignerSync,
-  params: SignatureParams
-): httpsig.SignatureHeaders {
-  return httpsig.signatureHeadersSync(message, {
-    signer,
-    keyid: signer.keyid,
-    ...getSigningOptions(message, params),
-  });
-}
-
-export type Verify<T> = (
-  data: string,
-  signature: Uint8Array,
-  params: VerificationParams
-) => T | Promise<T>;
-
-export function verify<T>(
-  message:
-    httpsig.RequestLike | httpsig.ResponseLike | httpsig.ResponseRequestPair,
-  verifier: Verify<T>
-): Promise<T> {
-  const signatureAgent = httpsig.extractHeader(
-    httpsig.resolveMessageKind(message),
-    SIGNATURE_AGENT_HEADER
-  );
-  const v = (
-    data: string,
-    signature: Uint8Array,
-    params: httpsig.Parameters,
-    components: httpsig.Component[]
-  ): T | Promise<T> => {
-    if (params.tag !== HTTP_MESSAGE_SIGNATURE_TAG) {
-      throw new Error(`tag must be '${HTTP_MESSAGE_SIGNATURE_TAG}'`);
-    }
-    if (params.created.getTime() > Date.now()) {
-      throw new Error("created in the future");
-    }
-    if (params.expires.getTime() < Date.now()) {
-      throw new Error("signature has expired");
-    }
-    if (params.keyid === undefined) {
-      throw new Error("keyid MUST be defined");
-    }
-    // A signature that covers no request target can be replayed against any
-    // endpoint. Require @authority or @target-uri, and signature-agent whenever
-    // the header is present. Mirrors crates/web-bot-auth/src/lib.rs.
-    const covered = components.map((c) =>
-      (typeof c === "string"
-        ? c
-        : "header" in c
-          ? c.header
-          : c.name
-      ).toLowerCase()
-    );
-    if (!covered.includes("@authority") && !covered.includes("@target-uri")) {
-      throw new Error("signature must cover @authority or @target-uri");
-    }
-    if (signatureAgent && !covered.includes(SIGNATURE_AGENT_HEADER)) {
-      throw new Error(
-        `signature with ${SIGNATURE_AGENT_HEADER} header must cover ${SIGNATURE_AGENT_HEADER}`
-      );
-    }
-    const vparams: VerificationParams = {
-      keyid: params.keyid,
-      created: params.created,
-      expires: params.expires,
-      tag: params.tag,
-      nonce: params.nonce,
-    };
-    return verifier(data, signature, vparams);
-  };
-  return httpsig.verify(message, v);
-}
-
-export interface Directory extends httpsig.Directory {
-  purpose: string;
-}
-
-export {
+import { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
+import {
   parseRegistry,
   parseSignatureAgentCard,
   parseSignatureAgentHeader,
@@ -239,3 +27,356 @@ export {
   type SignatureAgentHeader,
   type WebBotAuthMetadata,
 } from "./registry";
+
+export { jwkToKeyID };
+export {
+  parseRegistry,
+  parseSignatureAgentCard,
+  parseSignatureAgentHeader,
+  type JSONWebKeySet,
+  type SignatureAgentCard,
+  type SignatureAgentDiscoveryType,
+  type SignatureAgentEntry,
+  type SignatureAgentHeader,
+  type WebBotAuthMetadata,
+};
+export type { RequestDescriptor, SignatureFields } from "http-message-sig";
+
+export const HTTP_MESSAGE_SIGNATURE_TAG = "web-bot-auth";
+export const SIGNATURE_AGENT_HEADER = "signature-agent";
+export const HTTP_MESSAGE_SIGNATURES_DIRECTORY =
+  "/.well-known/http-message-signatures-directory";
+export const NONCE_LENGTH_IN_BYTES = 64;
+
+export type WebBotAlgorithm = "ed25519" | "rsa-pss-sha512";
+
+export interface WebBotSigner extends Signer {
+  readonly algorithm: WebBotAlgorithm;
+  readonly keyid: string;
+}
+
+export interface WebBotSignerSync extends SignerSync {
+  readonly algorithm: WebBotAlgorithm;
+  readonly keyid: string;
+}
+
+export interface WebBotVerifier extends Verifier {
+  readonly algorithm: WebBotAlgorithm;
+  readonly keyid: string;
+}
+
+export interface SignOptions {
+  readonly signer: WebBotSigner;
+  readonly expires: Date;
+  readonly created?: Date;
+  readonly nonce?: string;
+  readonly label?: string;
+  readonly target?: "@authority" | "@target-uri";
+  readonly additionalComponents?: readonly SignatureComponent[];
+}
+
+export interface SignSyncOptions extends Omit<SignOptions, "signer"> {
+  readonly signer: WebBotSignerSync;
+}
+
+export interface UntrustedWebBotSignatureCandidate {
+  readonly keyid: string;
+  readonly algorithm: WebBotAlgorithm;
+  readonly signatureAgent?: SignatureAgentEntry;
+}
+
+export interface VerifiedWebBotSignature<
+  V extends WebBotVerifier = WebBotVerifier,
+> extends VerifiedSignature<V> {
+  readonly keyid: string;
+  readonly created: Date;
+  readonly expires: Date;
+  readonly tag: typeof HTTP_MESSAGE_SIGNATURE_TAG;
+  readonly nonce?: string;
+  readonly signatureAgent?: SignatureAgentEntry;
+}
+
+export interface VerifyOptions<V extends WebBotVerifier = WebBotVerifier> {
+  readonly resolver: (
+    candidate: UntrustedWebBotSignatureCandidate
+  ) => V | Promise<V>;
+  readonly algorithms?: readonly WebBotAlgorithm[];
+  readonly label?: string;
+  readonly maxAge?: number;
+  readonly clockSkew?: number;
+  readonly now?: Date;
+  readonly validate?: (
+    signature: VerifiedWebBotSignature<V>
+  ) => boolean | void | Promise<boolean | void>;
+}
+
+function policyError(message: string): never {
+  throw new SignatureError(SignatureErrorCode.PolicyViolation, message);
+}
+
+function seconds(date: Date, name: string): number {
+  const milliseconds = date.getTime();
+  if (!Number.isFinite(milliseconds)) {
+    return policyError(`${name} must be a valid date`);
+  }
+  return Math.floor(milliseconds / 1000);
+}
+
+function base64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function decodeBase64Url(value: string): Uint8Array | undefined {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
+  const remainder = value.length % 4;
+  if (remainder === 1) return undefined;
+  const padded =
+    value.replace(/-/g, "+").replace(/_/g, "/") +
+    "=".repeat((4 - remainder) % 4);
+  try {
+    return Uint8Array.from(atob(padded), (character) =>
+      character.charCodeAt(0)
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function generateNonce(): string {
+  const nonce = new Uint8Array(NONCE_LENGTH_IN_BYTES);
+  crypto.getRandomValues(nonce);
+  return base64Url(nonce);
+}
+
+export function validateNonce(nonce: unknown): nonce is string {
+  if (typeof nonce !== "string") return false;
+  const decoded = decodeBase64Url(nonce);
+  return (
+    decoded !== undefined &&
+    decoded.length === NONCE_LENGTH_IN_BYTES &&
+    base64Url(decoded) === nonce
+  );
+}
+
+function requestHeader(
+  request: Request | RequestDescriptor,
+  name: string
+): string | undefined {
+  if ("kind" in request) {
+    const values = request.fields
+      .filter((field) => field.name.toLowerCase() === name)
+      .map((field) => field.value.trim());
+    return values.length === 0 ? undefined : values.join(", ");
+  }
+  return request.headers.get(name) ?? undefined;
+}
+
+function signatureAgent(
+  request: Request | RequestDescriptor,
+  label: string
+): SignatureAgentEntry | undefined {
+  const header = requestHeader(request, SIGNATURE_AGENT_HEADER);
+  if (header === undefined) return undefined;
+  const parsed = parseSignatureAgentHeader(header);
+  if (parsed.kind !== "current") {
+    return policyError(
+      "legacy Signature-Agent cannot be covered by dictionary member"
+    );
+  }
+  const entry = parsed.entries.find((candidate) => candidate.label === label);
+  if (entry === undefined) {
+    return policyError(`Signature-Agent has no member ${label}`);
+  }
+  return Object.freeze({ ...entry });
+}
+
+function hasExactBareTarget(
+  components: readonly ComponentDescriptor[]
+): boolean {
+  return components.some(
+    ({ name, parameters }) =>
+      (name === "@authority" || name === "@target-uri") &&
+      Object.keys(parameters).length === 0
+  );
+}
+
+function hasExactAgentComponent(
+  components: readonly ComponentDescriptor[],
+  label: string
+): boolean {
+  return components.some(({ name, parameters }) => {
+    const entries = Object.entries(parameters);
+    return (
+      name === SIGNATURE_AGENT_HEADER &&
+      entries.length === 1 &&
+      parameters.key === label
+    );
+  });
+}
+
+function signingOptions(
+  request: Request | RequestDescriptor,
+  options: Omit<SignOptions, "signer"> & {
+    readonly signer: Pick<WebBotSigner, "algorithm" | "keyid">;
+  }
+) {
+  if (
+    options.signer.algorithm !== "ed25519" &&
+    options.signer.algorithm !== "rsa-pss-sha512"
+  ) {
+    return policyError("signer algorithm is unsupported");
+  }
+  if (options.signer.keyid === "") {
+    return policyError("signer keyid must not be empty");
+  }
+  const label = options.label ?? "sig1";
+  const created = seconds(options.created ?? new Date(), "created");
+  const expires = seconds(options.expires, "expires");
+  if (created > expires)
+    return policyError("created must not be after expires");
+  if (options.nonce !== undefined && !validateNonce(options.nonce)) {
+    return policyError(
+      "nonce must be canonical unpadded base64url encoding of 64 bytes"
+    );
+  }
+  const agent = signatureAgent(request, label);
+  const components: SignatureComponent[] = [options.target ?? "@authority"];
+  if (agent !== undefined) {
+    components.push(component(SIGNATURE_AGENT_HEADER, { key: label }));
+  }
+  components.push(...(options.additionalComponents ?? []));
+  return {
+    label,
+    components,
+    parameters: {
+      created,
+      expires,
+      keyid: options.signer.keyid,
+      alg: options.signer.algorithm,
+      tag: HTTP_MESSAGE_SIGNATURE_TAG,
+      nonce: options.nonce,
+    },
+  };
+}
+
+export async function sign(
+  request: Request | RequestDescriptor,
+  options: SignOptions
+): Promise<SignatureFields> {
+  return createSignature(request, {
+    ...signingOptions(request, options),
+    signer: options.signer,
+  });
+}
+
+export function signSync(
+  request: Request | RequestDescriptor,
+  options: SignSyncOptions
+): SignatureFields {
+  return createSignatureSync(request, {
+    ...signingOptions(request, options),
+    signer: options.signer,
+  });
+}
+
+function profileCandidate(
+  request: Request | RequestDescriptor,
+  candidate: UntrustedSignatureCandidate
+): UntrustedWebBotSignatureCandidate {
+  const { algorithm, parameters, components, label } = candidate;
+  if (algorithm !== "ed25519" && algorithm !== "rsa-pss-sha512") {
+    return policyError("signed algorithm is missing or unsupported");
+  }
+  const keyid = parameters.keyid;
+  if (typeof keyid !== "string" || keyid === "") {
+    return policyError("keyid must be a non-empty string");
+  }
+  if (parameters.tag !== HTTP_MESSAGE_SIGNATURE_TAG) {
+    return policyError(`tag must be '${HTTP_MESSAGE_SIGNATURE_TAG}'`);
+  }
+  const created = parameters.created;
+  const expires = parameters.expires;
+  if (typeof created !== "number" || typeof expires !== "number") {
+    return policyError("created and expires must be integers");
+  }
+  if (created > expires)
+    return policyError("created must not be after expires");
+  if (parameters.nonce !== undefined && !validateNonce(parameters.nonce)) {
+    return policyError(
+      "nonce must be canonical unpadded base64url encoding of 64 bytes"
+    );
+  }
+  if (!hasExactBareTarget(components)) {
+    return policyError(
+      "signature must cover bare @authority or bare @target-uri"
+    );
+  }
+  const agent = signatureAgent(request, label);
+  if (agent !== undefined && !hasExactAgentComponent(components, label)) {
+    return policyError(
+      `signature must cover ${SIGNATURE_AGENT_HEADER} member ${label}`
+    );
+  }
+  return Object.freeze({ keyid, algorithm, signatureAgent: agent });
+}
+
+export async function verify<V extends WebBotVerifier>(
+  request: Request | RequestDescriptor,
+  options: VerifyOptions<V>
+): Promise<VerifiedWebBotSignature<V>> {
+  const algorithms = options.algorithms ?? ["ed25519", "rsa-pss-sha512"];
+  const now = seconds(options.now ?? new Date(), "now");
+  let selected: UntrustedWebBotSignatureCandidate | undefined;
+  const verified = await verifySignature(request, {
+    label: options.label,
+    policy: {
+      algorithms,
+      requiredComponents: [],
+      requiredParameters: ["created", "expires", "keyid", "alg", "tag"],
+      maxAge: options.maxAge ?? 86_400,
+      clockSkew: options.clockSkew ?? 0,
+      now,
+    },
+    async resolveVerifier(candidate) {
+      const profile = profileCandidate(request, candidate);
+      selected = profile;
+      const verifier = await options.resolver(profile);
+      if (verifier.keyid !== profile.keyid) {
+        return policyError(
+          "resolved verifier keyid does not match signed keyid"
+        );
+      }
+      return verifier;
+    },
+  });
+  if (selected === undefined) {
+    return policyError("signature candidate was not resolved");
+  }
+  const authenticatedCreated = verified.parameters.created;
+  const authenticatedExpires = verified.parameters.expires;
+  if (
+    typeof authenticatedCreated !== "number" ||
+    typeof authenticatedExpires !== "number"
+  ) {
+    return policyError("authenticated signature lacks timestamps");
+  }
+  const result: VerifiedWebBotSignature<V> = Object.freeze({
+    ...verified,
+    keyid: selected.keyid,
+    created: new Date(authenticatedCreated * 1000),
+    expires: new Date(authenticatedExpires * 1000),
+    tag: HTTP_MESSAGE_SIGNATURE_TAG,
+    nonce: verified.parameters.nonce,
+    signatureAgent: selected.signatureAgent,
+  });
+  if (
+    options.validate !== undefined &&
+    (await options.validate(result)) === false
+  ) {
+    return policyError("signature rejected by profile validation");
+  }
+  return result;
+}

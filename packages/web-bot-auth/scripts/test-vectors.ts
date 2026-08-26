@@ -4,14 +4,17 @@
 ///
 /// It takes one positional argument: [directory] which is where the vectors should be written in JSON
 
-import type { Signer } from "http-message-sig";
+import type {
+  RequestDescriptor,
+  ResponseDescriptor,
+  Signer,
+} from "http-message-sig";
 
-const { recommendedComponents, signatureHeaders } =
-  await import("../dist/index.mjs");
+const { sign } = await import("../dist/index.mjs");
 
 const { signerFromJWK } = await import("../dist/crypto.mjs");
 
-const { directoryResponseHeaders } = await import("http-message-sig");
+const { component, createSignature } = await import("http-message-sig");
 
 const crypto = await import("crypto");
 const fs = await import("fs");
@@ -32,7 +35,7 @@ function nonceFor(jwk: JsonWebKey, label: string): string {
   return crypto
     .createHash("sha512")
     .update(`${DRAND_ROUND}:${DRAND_RANDOMNESS}:${jwk.kty}:${label}`)
-    .digest("base64");
+    .digest("base64url");
 }
 
 interface TestVector {
@@ -104,28 +107,28 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
   const label = "sig1";
   const nonce = nonceFor(jwk, label);
   let request = new Request(ORIGIN_URL);
-  const signedHeaders = await signatureHeaders(request, signer, {
-    components: recommendedComponents(),
+  const signedHeaders = await sign(request, {
+    signer,
     created,
     expires,
     nonce,
-    key: label,
+    label,
   });
 
   const labelWithAgent = "sig2";
   const nonceWithAgent = nonceFor(jwk, labelWithAgent);
-  const signatureAgentKey = "agent2";
+  const signatureAgentKey = labelWithAgent;
   request = new Request(ORIGIN_URL, {
     headers: {
       "Signature-Agent": `${signatureAgentKey}="${SIGNATURE_AGENT_HEADER}"`,
     },
   });
-  const signedHeadersWithAgent = await signatureHeaders(request, signer, {
-    components: recommendedComponents(signatureAgentKey),
+  const signedHeadersWithAgent = await sign(request, {
+    signer,
     created,
     expires,
     nonce: nonceWithAgent,
-    key: labelWithAgent,
+    label: labelWithAgent,
   });
 
   return [
@@ -136,8 +139,8 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
       expires_ms: expires.getTime(),
       nonce,
       label,
-      signature: signedHeaders["Signature"],
-      signature_input: signedHeaders["Signature-Input"],
+      signature: signedHeaders.signature,
+      signature_input: signedHeaders.signatureInput,
     },
     {
       key: jwk,
@@ -146,9 +149,9 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
       expires_ms: expires.getTime(),
       nonce: nonceWithAgent,
       label: labelWithAgent,
-      signature: signedHeadersWithAgent["Signature"],
-      signature_input: signedHeadersWithAgent["Signature-Input"],
-      signature_agent: request.headers.get("Signature-Agent"),
+      signature: signedHeadersWithAgent.signature,
+      signature_input: signedHeadersWithAgent.signatureInput,
+      signature_agent: request.headers.get("Signature-Agent") ?? undefined,
       signature_agent_key: signatureAgentKey,
     },
   ];
@@ -172,36 +175,49 @@ async function generateDirectoryResponseVector(
   const body = JSON.stringify({ keys: [publicKey] });
   const contentDigest = `sha-256=:${crypto.createHash("sha256").update(body).digest("base64")}:`;
   const request = {
+    kind: "request",
     method: "GET",
-    url: "https://signature-agent.test/.well-known/http-message-signatures-directory",
-    headers: {
-      accept: "application/http-message-signatures-directory+json",
-    },
-  };
+    targetUri:
+      "https://signature-agent.test/.well-known/http-message-signatures-directory",
+    fields: [
+      {
+        name: "accept",
+        value: "application/http-message-signatures-directory+json",
+      },
+    ],
+  } satisfies RequestDescriptor;
   const response = {
+    kind: "response",
     status: 200,
-    headers: {
-      "content-type": "application/http-message-signatures-directory+json",
-      "content-digest": contentDigest,
-    },
-  };
+    fields: [
+      {
+        name: "content-type",
+        value: "application/http-message-signatures-directory+json",
+      },
+      { name: "content-digest", value: contentDigest },
+    ],
+    request,
+  } satisfies ResponseDescriptor;
   let signatureBase: string | undefined;
   const capturingSigner: Signer = {
-    keyid: signer.keyid,
-    alg: signer.alg,
+    algorithm: signer.algorithm,
     async sign(data) {
-      signatureBase = data;
+      signatureBase = new TextDecoder().decode(data);
       return signer.sign(data);
     },
   };
-  const signatureHeaders = await directoryResponseHeaders(
-    { request, response },
-    [capturingSigner],
-    {
-      created: new Date(1735689600000),
-      expires: new Date(4889289600000),
-    }
-  );
+  const signatureHeaders = await createSignature(response, {
+    label: "binding0",
+    signer: capturingSigner,
+    components: [component("@authority", { req: true }), "content-digest"],
+    parameters: {
+      created: 1735689600,
+      keyid: signer.keyid,
+      alg: signer.algorithm,
+      expires: 4889289600,
+      tag: "http-message-signatures-directory",
+    },
+  });
   if (signatureBase === undefined) {
     throw new Error("directory response was not signed");
   }
@@ -211,12 +227,17 @@ async function generateDirectoryResponseVector(
     public_key: publicKey,
     request: {
       method: "GET",
-      target_url: request.url,
-      headers: request.headers,
+      target_url: request.targetUri,
+      headers: { accept: request.fields[0].value },
     },
     response: {
       status: 200,
-      headers: { ...response.headers, ...signatureHeaders },
+      headers: {
+        "content-type": response.fields[0].value,
+        "content-digest": response.fields[1].value,
+        Signature: signatureHeaders.signature,
+        "Signature-Input": signatureHeaders.signatureInput,
+      },
       body,
     },
     signature_base: signatureBase,

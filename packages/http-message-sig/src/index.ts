@@ -1,13 +1,11 @@
-export * as base64 from "./base64";
-export {
-  extractHeader,
-  resolveMessageKind,
-  isRawMessage,
-  componentHasParameters,
-} from "./build";
-export * from "./consts";
-export * from "./directory";
-export { parseAcceptSignatureHeader as parseAcceptSignature } from "./parse";
-export * from "./sign";
+export { Token } from "structured-headers";
+import { createWebCryptoSigner, createWebCryptoVerifier } from "./webcrypto";
+
+export const webcrypto = Object.freeze({
+  signer: createWebCryptoSigner,
+  verifier: createWebCryptoVerifier,
+});
+
+export * from "./core";
+export * from "./errors";
 export * from "./types";
-export * from "./verify";
