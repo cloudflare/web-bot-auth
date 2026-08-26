@@ -35,7 +35,7 @@ function nonceFor(jwk: JsonWebKey, label: string): string {
   return crypto
     .createHash("sha512")
     .update(`${DRAND_ROUND}:${DRAND_RANDOMNESS}:${jwk.kty}:${label}`)
-    .digest("base64url");
+    .digest("base64");
 }
 
 interface TestVector {
@@ -117,7 +117,7 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
 
   const labelWithAgent = "sig2";
   const nonceWithAgent = nonceFor(jwk, labelWithAgent);
-  const signatureAgentKey = labelWithAgent;
+  const signatureAgentKey = "agent2";
   request = new Request(ORIGIN_URL, {
     headers: {
       "Signature-Agent": `${signatureAgentKey}="${SIGNATURE_AGENT_HEADER}"`,
@@ -129,6 +129,7 @@ async function generateTestVectors(jwk: JsonWebKey): Promise<TestVector[]> {
     expires,
     nonce: nonceWithAgent,
     label: labelWithAgent,
+    signatureAgentKey,
   });
 
   return [
