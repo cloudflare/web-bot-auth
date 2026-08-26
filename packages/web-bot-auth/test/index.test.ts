@@ -3,12 +3,14 @@ import {
   generateNonce,
   REQUEST_COMPONENTS,
   signatureHeaders,
+  signatureHeadersSync,
   validateNonce,
   NONCE_LENGTH_IN_BYTES,
   SIGNATURE_AGENT_HEADER,
   verify,
   recommendedComponents,
 } from "../src/index";
+import type { KeyedSigner } from "../src/crypto";
 import { signerFromJWK, verifierFromJWK } from "../src/crypto";
 import { b64Tou8, u8ToB64 } from "../src/base64";
 
@@ -40,6 +42,30 @@ describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
     });
 
     expect(signedHeaders["Signature-Input"]).toBe(v.signature_input);
+
+    // The synchronous path composes createSignatureBase() instead of createSignature(), so it has
+    // to reproduce the same Signature-Input. Only the signer differs: Web Crypto cannot sign
+    // synchronously, so a stub stands in for the bytes.
+    const syncSigner: KeyedSigner = {
+      alg: signer.alg,
+      keyid: signer.keyid,
+      signer: () => ({
+        alg: signer.alg,
+        sign: (data) => new Uint8Array(data.length),
+      }),
+    };
+    const syncHeaders = signatureHeadersSync(request, syncSigner, {
+      components: Object.hasOwnProperty.call(v, "signature_agent_key")
+        ? recommendedComponents(v["signature_agent_key"])
+        : v.signature_agent
+          ? ["@authority", "signature-agent"]
+          : recommendedComponents(),
+      created: new Date(v.created_ms),
+      expires: new Date(v.expires_ms),
+      nonce: v.nonce,
+      key: v.label,
+    });
+    expect(syncHeaders["Signature-Input"]).toBe(v.signature_input);
 
     // Appending signed header to the request, given that's what the origin receives
     headers.append("Signature", signedHeaders["Signature"]);

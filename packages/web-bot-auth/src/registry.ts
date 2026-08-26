@@ -1,4 +1,5 @@
-import { parseDictionary, parseItem } from "structured-headers";
+import { parseStructuredField } from "fetch-message-signatures";
+import type { StructuredFieldBareItem } from "fetch-message-signatures";
 
 export type SignatureAgentDiscoveryType = "directory" | "jwks_uri" | "cimd";
 
@@ -133,8 +134,21 @@ function triggerValue(value: unknown): "fetcher" | "crawler" | undefined {
   throw new Error("trigger must be fetcher or crawler");
 }
 
-function discoveryType(value: unknown): SignatureAgentDiscoveryType {
-  const typeName = value === undefined ? "directory" : String(value);
+/** The text of a bare item that names a discovery type, which is a Token in practice. */
+function bareItemText(value: StructuredFieldBareItem): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "object" && value !== null && "type" in value) {
+    return String(value.value);
+  }
+  return String(value);
+}
+
+function discoveryType(
+  value: StructuredFieldBareItem | undefined
+): SignatureAgentDiscoveryType {
+  const typeName = value === undefined ? "directory" : bareItemText(value);
   if (typeName === "directory") {
     return "directory";
   }
@@ -161,33 +175,34 @@ export function parseSignatureAgentHeader(
   header: string
 ): SignatureAgentHeader {
   try {
-    const dictionary = parseDictionary(header);
-    if (dictionary.size === 0) {
+    const dictionary = parseStructuredField(header, "dictionary");
+    if (dictionary.length === 0) {
       throw new Error("Signature-Agent header must not be empty");
     }
     const entries: SignatureAgentEntry[] = [];
-    for (const [label, value] of dictionary) {
-      const [uri, params] = value;
-      if (typeof uri !== "string") {
+    for (const [label, member] of dictionary) {
+      if (member.type !== "item" || typeof member.value !== "string") {
         throw new Error("Signature-Agent values must be strings");
       }
-      const type = discoveryType(params.get("type"));
-      validateDiscoveryURI(uri, type);
-      entries.push({ label, uri, type });
+      const type = discoveryType(
+        member.parameters.find(([name]) => name === "type")?.[1]
+      );
+      validateDiscoveryURI(member.value, type);
+      entries.push({ label, uri: member.value, type });
     }
     return { kind: "current", entries };
   } catch (dictionaryError) {
     try {
-      const [uri] = parseItem(header);
-      if (typeof uri !== "string") {
+      const item = parseStructuredField(header, "item");
+      if (typeof item.value !== "string") {
         throw new Error("legacy Signature-Agent must be a string", {
           cause: dictionaryError,
         });
       }
-      validateDiscoveryURI(uri, "directory");
+      validateDiscoveryURI(item.value, "directory");
       return {
         kind: "legacy",
-        entries: [{ label: "", uri, type: "directory" }],
+        entries: [{ label: "", uri: item.value, type: "directory" }],
       };
     } catch (itemError) {
       throw new Error(
