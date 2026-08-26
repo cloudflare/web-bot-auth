@@ -1,228 +1,395 @@
-import { vi, describe, it, expect } from "vitest";
+import { createSignature, component } from "http-message-sig";
+import { describe, expect, it, vi } from "vitest";
 import {
   generateNonce,
-  REQUEST_COMPONENTS,
-  signatureHeaders,
+  sign,
+  signSync,
   validateNonce,
-  NONCE_LENGTH_IN_BYTES,
-  SIGNATURE_AGENT_HEADER,
   verify,
-  recommendedComponents,
+  type SignatureFields,
+  type WebBotSigner,
+  type WebBotSignerSync,
+  type WebBotVerifier,
 } from "../src/index";
 import { signerFromJWK, verifierFromJWK } from "../src/crypto";
-import { b64Tou8, u8ToB64 } from "../src/base64";
+import vectors from "./test_data/web_bot_auth_architecture_v2.json";
 
-import vectors1 from "./test_data/web_bot_auth_architecture_v1.json";
-import vectors2 from "./test_data/web_bot_auth_architecture_v2.json";
+const created = new Date("2025-01-01T00:00:00Z");
+const expires = new Date("2025-01-01T01:00:00Z");
+const now = new Date("2025-01-01T00:30:00Z");
+const ed25519Vector = vectors.find((vector) => vector.key.kty === "OKP");
+if (ed25519Vector === undefined) throw new Error("missing Ed25519 vector");
+const ed25519Jwk: JsonWebKey = ed25519Vector.key;
 
-const vectors = [...vectors1, ...vectors2];
-type Vectors = (typeof vectors)[number];
+function withSignature(request: Request, fields: SignatureFields): Request {
+  const headers = new Headers(request.headers);
+  headers.set("signature", fields.signature);
+  headers.set("signature-input", fields.signatureInput);
+  return new Request(request, { headers });
+}
 
-describe.each(vectors)("Web-bot-auth-ed25519-Vector-%#", (v: Vectors) => {
-  it("should pass IETF draft test vectors", async () => {
-    const signer = await signerFromJWK(v.key);
+async function signedRequest(
+  request: Request,
+  signer: WebBotSigner,
+  overrides: Partial<{
+    readonly created: Date;
+    readonly expires: Date;
+    readonly nonce: string;
+    readonly label: string;
+  }> = {}
+): Promise<Request> {
+  return withSignature(
+    request,
+    await sign(request, {
+      signer,
+      created: overrides.created ?? created,
+      expires: overrides.expires ?? expires,
+      nonce: overrides.nonce,
+      label: overrides.label,
+    })
+  );
+}
 
+describe.each(vectors)("architecture vector: $label/$key.kty", (vector) => {
+  it("signs and verifies", async () => {
+    const signer = await signerFromJWK(vector.key);
     const headers = new Headers();
-    if (v.signature_agent) {
-      headers.append(SIGNATURE_AGENT_HEADER, v.signature_agent);
+    if (vector.signature_agent !== undefined) {
+      headers.set("signature-agent", vector.signature_agent);
     }
-    const request = new Request(v.target_url, { headers });
-    const signedHeaders = await signatureHeaders(request, signer, {
-      components: Object.hasOwnProperty.call(v, "signature_agent_key")
-        ? recommendedComponents(v["signature_agent_key"])
-        : v.signature_agent
-          ? ["@authority", "signature-agent"]
-          : recommendedComponents(),
-      created: new Date(v.created_ms),
-      expires: new Date(v.expires_ms),
-      nonce: v.nonce,
-      key: v.label,
+    const request = new Request(vector.target_url, { headers });
+    const fields = await sign(request, {
+      signer,
+      created: new Date(vector.created_ms),
+      expires: new Date(vector.expires_ms),
+      nonce: vector.nonce,
+      label: vector.label,
     });
+    expect(fields.signatureInput).toBe(vector.signature_input);
 
-    expect(signedHeaders["Signature-Input"]).toBe(v.signature_input);
-
-    // Appending signed header to the request, given that's what the origin receives
-    headers.append("Signature", signedHeaders["Signature"]);
-    headers.append("Signature-Input", signedHeaders["Signature-Input"]);
-    const signedRequest = new Request(request.url, {
-      headers,
+    const verifier = await verifierFromJWK(vector.key);
+    const result = await verify(withSignature(request, fields), {
+      now: new Date(vector.created_ms),
+      resolver: () => verifier,
     });
+    expect(result.keyid).toBe(signer.keyid);
+    expect(result.signatureAgent?.label).toBe(vector.signature_agent_key);
 
-    vi.setSystemTime(new Date(v.created_ms));
-    expect(
-      await verify(signedRequest, await verifierFromJWK(v.key))
-    ).toBeUndefined();
-    vi.useRealTimers();
-  });
-});
-
-describe("custom components", () => {
-  const ed25519Key =
-    vectors.find((v) => v.key.kty === "OKP")?.key ?? vectors[0].key;
-
-  it("should sign with custom components including additional headers", async () => {
-    const signer = await signerFromJWK(ed25519Key);
-
-    const headers = new Headers();
-    headers.append(SIGNATURE_AGENT_HEADER, "https://example.bot.com");
-    headers.append("accept", "text/html");
-    const request = new Request("https://example.com", { headers });
-
-    const signedHeaders = await signatureHeaders(request, signer, {
-      created: new Date(1735689600000),
-      expires: new Date(1735693200000),
-      components: [...REQUEST_COMPONENTS, "accept"],
-    });
-
-    // Verify that the Signature-Input includes the custom component
-    expect(signedHeaders["Signature-Input"]).toContain('"accept"');
-    expect(signedHeaders["Signature-Input"]).toContain('"@authority"');
-    expect(signedHeaders["Signature-Input"]).toContain('"signature-agent"');
-  });
-
-  it("should reject custom components missing signature-agent when header is present", async () => {
-    const signer = await signerFromJWK(ed25519Key);
-
-    const headers = new Headers();
-    headers.append(SIGNATURE_AGENT_HEADER, "https://example.bot.com");
-    const request = new Request("https://example.com", { headers });
-
-    expect(() =>
-      signatureHeaders(request, signer, {
-        created: new Date(1735689600000),
-        expires: new Date(1735693200000),
-        components: ["@authority"], // missing signature-agent
+    const vectorFields: SignatureFields = {
+      signature: vector.signature,
+      signatureInput: vector.signature_input,
+    };
+    await expect(
+      verify(withSignature(request, vectorFields), {
+        now: new Date(vector.created_ms),
+        resolver: () => verifier,
       })
-    ).toThrow(`${SIGNATURE_AGENT_HEADER} is required in params.component`);
-  });
-
-  it("should allow custom components without signature-agent when header is absent", async () => {
-    const signer = await signerFromJWK(ed25519Key);
-
-    const request = new Request("https://example.com");
-
-    const signedHeaders = await signatureHeaders(request, signer, {
-      created: new Date(1735689600000),
-      expires: new Date(1735693200000),
-      components: ["@authority"],
-    });
-
-    expect(signedHeaders["Signature-Input"]).toContain('"@authority"');
-    expect(signedHeaders["Signature-Input"]).not.toContain('"signature-agent"');
-  });
-});
-
-describe("covered component enforcement (GHSA-x9cc-346q-g27m)", () => {
-  const ed25519Key =
-    vectors.find((v) => v.key.kty === "OKP")?.key ?? vectors[0].key;
-  const created = new Date(1735689600000);
-  const expires = new Date(1735693200000);
-
-  async function signedRequestWith(components: string[]): Promise<Request> {
-    const signer = await signerFromJWK(ed25519Key);
-    const request = new Request("https://example.com/public");
-    const signedHeaders = await signatureHeaders(request, signer, {
-      created,
-      expires,
-      components,
-    });
-    const headers = new Headers();
-    headers.append("Signature", signedHeaders["Signature"]);
-    headers.append("Signature-Input", signedHeaders["Signature-Input"]);
-    return new Request(request.url, { headers });
-  }
-
-  it("rejects a signature that covers no request components", async () => {
-    const signedRequest = await signedRequestWith([]);
-    vi.setSystemTime(created);
-    await expect(
-      verify(signedRequest, await verifierFromJWK(ed25519Key))
-    ).rejects.toThrow("signature must cover @authority or @target-uri");
-    vi.useRealTimers();
-  });
-
-  it("accepts a signature covering @authority", async () => {
-    const signedRequest = await signedRequestWith(["@authority"]);
-    vi.setSystemTime(created);
-    await expect(
-      verify(signedRequest, await verifierFromJWK(ed25519Key))
-    ).resolves.toBeUndefined();
-    vi.useRealTimers();
-  });
-
-  it("accepts a signature covering @target-uri", async () => {
-    const signedRequest = await signedRequestWith(["@target-uri"]);
-    vi.setSystemTime(created);
-    await expect(
-      verify(signedRequest, await verifierFromJWK(ed25519Key))
-    ).resolves.toBeUndefined();
-    vi.useRealTimers();
+    ).resolves.toMatchObject({ keyid: signer.keyid });
   });
 });
 
 describe("nonce", () => {
-  describe("generateNonce", () => {
-    it("should generate a base64 string", () => {
-      const nonce = generateNonce();
-      expect(typeof nonce).toBe("string");
-      // Base64 regex pattern
-      expect(() => b64Tou8(nonce)).not.toThrowError();
+  it("is absent when omitted", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const fields = await sign(new Request("https://example.com"), {
+      signer,
+      created,
+      expires,
     });
-
-    it("should generate nonce with correct length when decoded", () => {
-      const nonce = generateNonce();
-      const decoded = b64Tou8(nonce);
-      expect(decoded.length).toBe(NONCE_LENGTH_IN_BYTES);
-    });
-
-    it("should generate unique nonces", () => {
-      const nonce1 = generateNonce();
-      const nonce2 = generateNonce();
-      const nonce3 = generateNonce();
-      expect(nonce1).not.toBe(nonce2);
-      expect(nonce2).not.toBe(nonce3);
-      expect(nonce1).not.toBe(nonce3);
-    });
+    expect(fields.signatureInput).not.toContain(";nonce=");
   });
 
-  describe("validateNonce", () => {
-    it("should validate correctly generated nonces", () => {
-      const nonce = generateNonce();
-      expect(validateNonce(nonce)).toBe(true);
+  it("generates canonical unpadded base64url", () => {
+    const nonce = generateNonce();
+    expect(nonce).toMatch(/^[A-Za-z0-9_-]{86}$/);
+    expect(validateNonce(nonce)).toBe(true);
+  });
+
+  it.each([
+    "",
+    "abc",
+    "A".repeat(85),
+    "A".repeat(85) + "=",
+    "A".repeat(85) + "+",
+  ])("rejects malformed nonce %s", async (nonce) => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    await expect(
+      sign(new Request("https://example.com"), {
+        signer,
+        created,
+        expires,
+        nonce,
+      })
+    ).rejects.toThrow("canonical unpadded base64url");
+  });
+});
+
+describe("synchronous signing", () => {
+  it("applies the same profile as asynchronous signing", () => {
+    const signer: WebBotSignerSync = {
+      algorithm: "ed25519",
+      keyid: "test-key",
+      sign: () => new Uint8Array(64),
+    };
+    const request = new Request("https://example.com", {
+      headers: {
+        "signature-agent": 'sig1="https://bot.example";type=directory',
+      },
     });
-
-    it("should reject invalid base64 strings", () => {
-      expect(validateNonce("not-base64!@#$")).toBe(false);
-    });
-
-    it("should reject empty string", () => {
-      expect(validateNonce("")).toBe(false);
-    });
-
-    it("should reject nonces of incorrect length", () => {
-      // Create a small base64 string
-      const shortNonce = btoa("too short");
-      expect(validateNonce(shortNonce)).toBe(false);
-
-      // Create a long base64 string
-      const longArray = new Uint8Array(NONCE_LENGTH_IN_BYTES + 10);
-      crypto.getRandomValues(longArray);
-      const longNonce = u8ToB64(longArray);
-      expect(validateNonce(longNonce)).toBe(false);
-    });
-
-    it.each([[null], [undefined], [123], [{}], [[]], [true]])(
-      "should handle invalid input type: %s",
-      (invalidInput: unknown) => {
-        expect(validateNonce(invalidInput as string)).toBe(false);
-      }
+    const fields = signSync(request, { signer, created, expires });
+    expect(fields.signatureInput).toContain(
+      '("@authority" "signature-agent";key="sig1")'
     );
+    expect(fields.signatureInput).toContain(';alg="ed25519"');
+    expect(fields.signature).toMatch(/^sig1=:/);
+  });
+});
 
-    it("should validate multiple generated nonces", () => {
-      for (let i = 0; i < 10; i++) {
-        const nonce = generateNonce();
-        expect(validateNonce(nonce)).toBe(true);
-      }
+describe("Signature-Agent coverage", () => {
+  it("signs and authenticates the exact signature label member", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const verifier = await verifierFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: {
+        "signature-agent": 'sig1="https://bot.example/card";type=cimd',
+      },
     });
+    const fields = await sign(request, { signer, created, expires });
+    expect(fields.signatureInput).toContain('"signature-agent";key="sig1"');
+    const resolver = vi.fn(() => verifier);
+    const result = await verify(withSignature(request, fields), {
+      resolver,
+      now,
+    });
+    expect(resolver).toHaveBeenCalledWith({
+      keyid: signer.keyid,
+      algorithm: "ed25519",
+      signatureAgent: {
+        label: "sig1",
+        uri: "https://bot.example/card",
+        type: "cimd",
+      },
+    });
+    expect(result.signatureAgent?.uri).toBe("https://bot.example/card");
+  });
+
+  it("rejects a missing matching header member while signing", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: { "signature-agent": 'other="https://bot.example"' },
+    });
+    await expect(sign(request, { signer, created, expires })).rejects.toThrow(
+      "Signature-Agent has no member sig1"
+    );
+  });
+
+  it("rejects whole-field-only coverage before resolution", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: { "signature-agent": 'sig1="https://bot.example"' },
+    });
+    const fields = await createSignature(request, {
+      signer,
+      components: ["@authority", "signature-agent"],
+      parameters: {
+        created: Math.floor(created.getTime() / 1000),
+        expires: Math.floor(expires.getTime() / 1000),
+        keyid: signer.keyid,
+        alg: signer.algorithm,
+        tag: "web-bot-auth",
+      },
+    });
+    const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+    await expect(
+      verify(withSignature(request, fields), { resolver, now })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: { message: "signature must cover signature-agent member sig1" },
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects coverage of the wrong dictionary member", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: {
+        "signature-agent":
+          'sig1="https://one.example", sig2="https://two.example"',
+      },
+    });
+    const fields = await createSignature(request, {
+      signer,
+      components: ["@authority", component("signature-agent", { key: "sig2" })],
+      parameters: {
+        created: Math.floor(created.getTime() / 1000),
+        expires: Math.floor(expires.getTime() / 1000),
+        keyid: signer.keyid,
+        alg: signer.algorithm,
+        tag: "web-bot-auth",
+      },
+    });
+    const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+    await expect(
+      verify(withSignature(request, fields), { resolver, now })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: { message: "signature must cover signature-agent member sig1" },
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects req component confusion", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: { "signature-agent": 'sig1="https://bot.example"' },
+    });
+    const requestDescriptor = {
+      kind: "request",
+      method: "GET",
+      targetUri: request.url,
+      fields: [
+        { name: "signature-agent", value: 'sig1="https://bot.example"' },
+      ],
+    } satisfies import("http-message-sig").RequestDescriptor;
+    const response = {
+      kind: "response",
+      status: 200,
+      fields: [],
+      request: requestDescriptor,
+    } satisfies import("http-message-sig").ResponseDescriptor;
+    const fields = await createSignature(response, {
+      signer,
+      components: [
+        component("@authority", { req: true }),
+        component("signature-agent", { req: true, key: "sig1" }),
+      ],
+      parameters: {
+        created: Math.floor(created.getTime() / 1000),
+        expires: Math.floor(expires.getTime() / 1000),
+        keyid: signer.keyid,
+        alg: signer.algorithm,
+        tag: "web-bot-auth",
+      },
+    });
+    const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+    await expect(
+      verify(withSignature(request, fields), { resolver, now })
+    ).rejects.toThrow("req requires a response");
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy form", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: { "signature-agent": '"https://bot.example"' },
+    });
+    await expect(sign(request, { signer, created, expires })).rejects.toThrow(
+      "legacy Signature-Agent"
+    );
+  });
+});
+
+describe("verification policy", () => {
+  it("rejects algorithm mismatch", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = await signedRequest(
+      new Request("https://example.com"),
+      signer
+    );
+    const mismatched: WebBotVerifier = {
+      algorithm: "rsa-pss-sha512",
+      keyid: signer.keyid,
+      verify: () => true,
+    };
+    await expect(
+      verify(request, { resolver: () => mismatched, now })
+    ).rejects.toThrow("does not match");
+  });
+
+  it("rejects resolved keyid mismatch before crypto", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = await signedRequest(
+      new Request("https://example.com"),
+      signer
+    );
+    const verifier: WebBotVerifier = {
+      algorithm: "ed25519",
+      keyid: "wrong-key",
+      verify: vi.fn(() => true),
+    };
+    await expect(
+      verify(request, { resolver: () => verifier, now })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: { message: "resolved verifier keyid does not match signed keyid" },
+    });
+    expect(verifier.verify).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "future",
+      signedCreated: new Date("2025-01-01T00:31:00Z"),
+      signedExpires: expires,
+      maxAge: 3600,
+      error: "future",
+    },
+    {
+      name: "expired",
+      signedCreated: created,
+      signedExpires: new Date("2025-01-01T00:29:59Z"),
+      maxAge: 3600,
+      error: "expired",
+    },
+    {
+      name: "too old",
+      signedCreated: created,
+      signedExpires: expires,
+      maxAge: 60,
+      error: "too old",
+    },
+  ])(
+    "rejects $name signatures",
+    async ({ signedCreated, signedExpires, maxAge, error }) => {
+      const signer = await signerFromJWK(ed25519Jwk);
+      const verifier = await verifierFromJWK(ed25519Jwk);
+      const request = await signedRequest(
+        new Request("https://example.com"),
+        signer,
+        {
+          created: signedCreated,
+          expires: signedExpires,
+        }
+      );
+      await expect(
+        verify(request, { resolver: () => verifier, now, maxAge })
+      ).rejects.toThrow(error);
+    }
+  );
+
+  it("runs replay validation after authentication", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const verifier = await verifierFromJWK(ed25519Jwk);
+    const nonce = generateNonce();
+    const request = await signedRequest(
+      new Request("https://example.com"),
+      signer,
+      { nonce }
+    );
+    const validate = vi.fn(() => false);
+    await expect(
+      verify(request, { resolver: () => verifier, now, validate })
+    ).rejects.toThrow("profile validation");
+    expect(validate).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce, verifier })
+    );
+  });
+});
+
+describe("JWK binding", () => {
+  it("rejects conflicting JWK alg", async () => {
+    await expect(
+      signerFromJWK({ ...ed25519Jwk, alg: "PS512" })
+    ).rejects.toThrow("Ed25519 JWK alg");
   });
 });
