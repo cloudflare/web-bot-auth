@@ -9,9 +9,11 @@
   "author": "Thibault Meunier",
   "private": true,
   "scripts": {
+    "bench": "npm run build && vitest bench --run",
+    "bench:trace": "npm run build && node bench/trace.mjs",
     "build": "npm run build -w http-message-sig -w jsonwebkey-thumbprint -w web-bot-auth",
-    "format": "prettier --write . && oxlint examples packages --ignore-pattern **/dist/** --fix",
-    "lint": "prettier --check . && oxlint examples packages --ignore-pattern **/dist/**",
+    "format": "prettier --write . && oxlint bench examples packages --ignore-pattern **/dist/** --fix",
+    "lint": "prettier --check . && oxlint bench examples packages --ignore-pattern **/dist/**",
     "test": "npm run test -w http-message-sig -- --run && npm run test -w jsonwebkey-thumbprint -- --run && npm run test -w web-bot-auth -- --run && npm run test -w verification-workers -- --run"
   },
   "license": "Apache-2.0",

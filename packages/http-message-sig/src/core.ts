@@ -407,9 +407,10 @@ function extractField(
   trailers: boolean
 ): string {
   const source = trailers ? snapshot.trailers : snapshot.fields;
-  const values = source
-    .filter((field) => field.name.toLowerCase() === name)
-    .map((field) => normalizeFieldValue(field.value));
+  const values: string[] = [];
+  for (const field of source) {
+    if (field.name === name) values.push(normalizeFieldValue(field.value));
+  }
   if (values.length === 0) {
     return fail(SignatureErrorCode.MissingField, `Missing field ${name}`);
   }
@@ -634,7 +635,7 @@ export async function createSignature(
     options.parameters,
     options.signer.algorithm
   );
-  const signature = await options.signer.sign(input.base.slice());
+  const signature = await options.signer.sign(input.base);
   return Object.freeze({
     signature: signatureDictionary(label, signature),
     signatureInput: input.signatureInput,
@@ -654,10 +655,7 @@ export function createSignatureSync(
     options.signer.algorithm
   );
   return Object.freeze({
-    signature: signatureDictionary(
-      label,
-      options.signer.sign(input.base.slice())
-    ),
+    signature: signatureDictionary(label, options.signer.sign(input.base)),
     signatureInput: input.signatureInput,
   });
 }
@@ -959,14 +957,16 @@ function assertPolicyCoverage<V extends Verifier>(
   policy: VerificationPolicy<V>,
   now: number
 ): void {
-  const present = new Set(components.map(equivalentIdentity));
-  for (const required of policy.requiredComponents) {
-    const identity = equivalentIdentity(normalizeComponent(required));
-    if (!present.has(identity)) {
-      fail(
-        SignatureErrorCode.PolicyViolation,
-        `Required component ${identity} is absent`
-      );
+  if (policy.requiredComponents.length !== 0) {
+    const present = new Set(components.map(equivalentIdentity));
+    for (const required of policy.requiredComponents) {
+      const identity = equivalentIdentity(normalizeComponent(required));
+      if (!present.has(identity)) {
+        fail(
+          SignatureErrorCode.PolicyViolation,
+          `Required component ${identity} is absent`
+        );
+      }
     }
   }
   for (const required of policy.requiredParameters) {
@@ -1078,7 +1078,7 @@ export async function verifySignature<V extends Verifier>(
     );
   }
   assertAlgorithm(claimedAlgorithm, verifier.algorithm);
-  const valid = await verifier.verify(base.slice(), signature.slice());
+  const valid = await verifier.verify(base, signature.slice());
   if (!valid) {
     return fail(
       SignatureErrorCode.VerificationFailed,
