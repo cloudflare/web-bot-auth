@@ -159,13 +159,45 @@ impl Thumbprintable {
 /// verifying keys for verificiation.
 #[derive(Default, Debug, Clone)]
 pub struct KeyRing {
-    ring: HashMap<String, (Algorithm, PublicKey)>,
+    ring: HashMap<String, KeyEntry>,
+}
+
+/// A keyring entry: the raw key material backing the public `get` API, plus
+/// verification state prepared once at insertion time.
+#[derive(Debug, Clone)]
+struct KeyEntry {
+    raw: (Algorithm, PublicKey),
+    prepared: PreparedKey,
+}
+
+/// Verification state prepared when an entry is created, so that verification
+/// does not pay for key reconstruction on every request.
+#[derive(Debug, Clone)]
+pub(crate) enum PreparedKey {
+    /// `Some` when the raw bytes yielded a valid `VerifyingKey` at import time.
+    /// `None` preserves the historical behavior of deferring the
+    /// `InvalidKeyLength` error to verification.
+    Ed25519(Option<VerifyingKey>),
+    /// No preparation is possible for algorithms we do not yet verify.
+    Unsupported,
+}
+
+impl From<(Algorithm, PublicKey)> for KeyEntry {
+    fn from(raw: (Algorithm, PublicKey)) -> KeyEntry {
+        let prepared = match &raw {
+            (Algorithm::Ed25519, public_key) => {
+                PreparedKey::Ed25519(VerifyingKey::try_from(public_key.as_slice()).ok())
+            }
+            _ => PreparedKey::Unsupported,
+        };
+        KeyEntry { raw, prepared }
+    }
 }
 
 impl FromIterator<(String, (Algorithm, PublicKey))> for KeyRing {
     fn from_iter<T: IntoIterator<Item = (String, (Algorithm, PublicKey))>>(iter: T) -> KeyRing {
         KeyRing {
-            ring: HashMap::from_iter(iter),
+            ring: HashMap::from_iter(iter.into_iter().map(|(id, raw)| (id, raw.into()))),
         }
     }
 }
@@ -182,7 +214,7 @@ impl KeyRing {
         !self.ring.contains_key(&identifier)
             && self
                 .ring
-                .insert(identifier, (algorithm, public_key))
+                .insert(identifier, (algorithm, public_key).into())
                 .is_none()
     }
 
@@ -197,7 +229,15 @@ impl KeyRing {
 
     /// Retrieve a key. Semantics are identical to `HashMap::get`.
     pub fn get(&self, identifier: &String) -> Option<&(Algorithm, Vec<u8>)> {
-        self.ring.get(identifier)
+        self.ring.get(identifier).map(|entry| &entry.raw)
+    }
+
+    /// Retrieve the algorithm and prepared verification state for a key.
+    /// Used by verification to avoid reconstructing verifying keys per request.
+    pub(crate) fn get_prepared(&self, identifier: &String) -> Option<(&Algorithm, &PreparedKey)> {
+        self.ring
+            .get(identifier)
+            .map(|entry| (&entry.raw.0, &entry.prepared))
     }
 
     /// Import a single JSON Web Key. This method is fallible.

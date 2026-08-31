@@ -11,6 +11,9 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[bench]]
+name = "keyring_verify"
+harness = false
 
 [dependencies]
 ed25519-dalek = { workspace = true }

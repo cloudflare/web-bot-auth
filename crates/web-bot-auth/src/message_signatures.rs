@@ -9,7 +9,7 @@ use time::UtcDateTime;
 
 use super::ImplementationError;
 use crate::components::{self, CoveredComponent, HTTPField};
-use crate::keyring::{Algorithm, KeyRing};
+use crate::keyring::{Algorithm, KeyRing, PreparedKey};
 
 static OBSOLETE_LINE_FOLDING: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s*\r\n\s+").unwrap());
@@ -579,8 +579,8 @@ impl MessageVerifier {
         keyring: &KeyRing,
         key_id: Option<String>,
     ) -> Result<SignatureTiming, ImplementationError> {
-        let keying_material = (match key_id {
-            Some(key) => keyring.get(&key),
+        let (algorithm, prepared) = (match key_id {
+            Some(key) => keyring.get_prepared(&key),
             None => self
                 .parsed
                 .base
@@ -588,18 +588,16 @@ impl MessageVerifier {
                 .details
                 .keyid
                 .as_ref()
-                .and_then(|key| keyring.get(key)),
+                .and_then(|key| keyring.get_prepared(key)),
         })
         .ok_or(ImplementationError::NoSuchKey)?;
         let generation = UtcDateTime::now();
         let (base_representation, _) = self.parsed.base.into_ascii()?;
         let generation = (UtcDateTime::now() - generation).unsigned_abs();
 
-        match &keying_material.0 {
-            Algorithm::Ed25519 => {
-                use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-                let verifying_key = VerifyingKey::try_from(keying_material.1.as_slice())
-                    .map_err(|_| ImplementationError::InvalidKeyLength)?;
+        match (algorithm, prepared) {
+            (Algorithm::Ed25519, PreparedKey::Ed25519(Some(verifying_key))) => {
+                use ed25519_dalek::{Signature, Verifier};
 
                 let sig = Signature::try_from(self.parsed.signature.as_slice())
                     .map_err(|_| ImplementationError::InvalidSignatureLength)?;
@@ -613,7 +611,10 @@ impl MessageVerifier {
                         verification: (UtcDateTime::now() - verification).unsigned_abs(),
                     })
             }
-            other => Err(ImplementationError::UnsupportedAlgorithm(other.clone())),
+            (Algorithm::Ed25519, PreparedKey::Ed25519(None)) => {
+                Err(ImplementationError::InvalidKeyLength)
+            }
+            (other, _) => Err(ImplementationError::UnsupportedAlgorithm(other.clone())),
         }
     }
 }
@@ -679,6 +680,123 @@ mod tests {
         let timing = verifier.verify(&keyring, None).unwrap();
         assert!(timing.generation.as_nanos() > 0);
         assert!(timing.verification.as_nanos() > 0);
+    }
+
+    const TEST_KEY_ID: &str = "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";
+    const TEST_PUBLIC_KEY: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+        0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58, 0x2b,
+        0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd, 0xce, 0x43,
+        0xd1, 0xbb,
+    ];
+
+    fn keyring_with_test_key() -> KeyRing {
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            TEST_KEY_ID.to_string(),
+            Algorithm::Ed25519,
+            TEST_PUBLIC_KEY.to_vec(),
+        );
+        keyring
+    }
+
+    #[test]
+    fn test_verifying_with_prepared_key() {
+        let keyring = keyring_with_test_key();
+        // Verify repeatedly against the same keyring: the prepared key must be
+        // reusable across requests without being cloned or reconstructed.
+        for _ in 0..2 {
+            let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+            assert!(verifier.verify(&keyring, None).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_importing_invalid_ed25519_key_material_defers_error() {
+        let mut keyring = KeyRing::default();
+        // `import_raw` historically accepts raw bytes that cannot become a
+        // valid `VerifyingKey`; the error surfaces at verification time.
+        assert!(keyring.import_raw(TEST_KEY_ID.to_string(), Algorithm::Ed25519, vec![0x42; 7],));
+        // The raw bytes remain retrievable through the public `get` API.
+        assert_eq!(
+            keyring.get(&TEST_KEY_ID.to_string()),
+            Some(&(Algorithm::Ed25519, vec![0x42; 7]))
+        );
+        let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(err, ImplementationError::InvalidKeyLength));
+    }
+
+    #[test]
+    fn test_verifying_invalid_signature_fails() {
+        struct TamperedSignature {}
+        impl SignedMessage for TamperedSignature {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                let mut values = (StandardTestVector {}).lookup_component(name);
+                if let CoveredComponent::HTTP(HTTPField { name, .. }) = name
+                    && name == "signature"
+                {
+                    // A well-formed but wrong signature for the test vector.
+                    values = vec!["sig1=:uz2SAv+VIemw+Oo890bhYh6Xf5qZdLUgv6/PbiQfCFXcX/vt1A8Pf7OcgL2yUDUYXFtffNpkEr5W6dldqFrkDA==:".to_owned()];
+                }
+                values
+            }
+        }
+        let keyring = keyring_with_test_key();
+        let verifier = MessageVerifier::parse(&TamperedSignature {}, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(err, ImplementationError::FailedToVerify(_)));
+    }
+
+    #[test]
+    fn test_verifying_unsupported_algorithm() {
+        let mut keyring = KeyRing::default();
+        assert!(keyring.import_raw(
+            TEST_KEY_ID.to_string(),
+            Algorithm::HmacSha256,
+            TEST_PUBLIC_KEY.to_vec(),
+        ));
+        let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::UnsupportedAlgorithm(Algorithm::HmacSha256)
+        ));
+    }
+
+    #[test]
+    fn test_duplicate_import_keeps_original_key() {
+        let mut keyring = keyring_with_test_key();
+        // Duplicate imports are rejected and leave the original entry intact.
+        assert!(!keyring.import_raw(TEST_KEY_ID.to_string(), Algorithm::Ed25519, vec![0x42; 7],));
+        let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+        assert!(verifier.verify(&keyring, None).is_ok());
+    }
+
+    #[test]
+    fn test_verifying_key_from_from_iterator() {
+        let keyring = KeyRing::from_iter([(
+            TEST_KEY_ID.to_string(),
+            (Algorithm::Ed25519, TEST_PUBLIC_KEY.to_vec()),
+        )]);
+        let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+        assert!(verifier.verify(&keyring, None).is_ok());
+    }
+
+    #[test]
+    fn test_verifying_renamed_key() {
+        let mut keyring = keyring_with_test_key();
+        assert!(keyring.rename_key(TEST_KEY_ID.to_string(), "renamed".to_string()));
+        // The old identifier no longer resolves.
+        let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(err, ImplementationError::NoSuchKey));
+        // The renamed key verifies with its prepared state intact.
+        let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
+        assert!(
+            verifier
+                .verify(&keyring, Some("renamed".to_string()))
+                .is_ok()
+        );
     }
 
     #[test]
