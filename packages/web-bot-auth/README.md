@@ -23,7 +23,7 @@ TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-h
 
 ## Usage
 
-This section shows basic signing and verification.
+This section shows basic signing and verification. To select one of several signatures, pass its `label` to `verify`; verify each label separately when all signatures matter.
 More concrete examples are provided on [cloudflareresearch/web-bot-auth/examples](https://github.com/cloudflareresearch/web-bot-auth#examples).
 
 ### Research server for debug purposes
