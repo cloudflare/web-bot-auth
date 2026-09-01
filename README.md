@@ -34,7 +34,7 @@ Use this deployment to test an implementation.
 
 | Example                                                | Description                                            |
 | :----------------------------------------------------- | :----------------------------------------------------- |
-| [Cloudflare Workers](./examples/verification-workers/) | Verify RFC 9421 `Signature` for every incoming request |
+| [Cloudflare Workers](./examples/verification-workers/) | Sign scheduled requests and verify incoming signatures |
 | [Caddy Plugin](./examples/caddy-plugin/)               | Verify RFC 9421 `Signature` for every incoming request |
 | [Rust](./examples/rust/)                               | Verify a sample test request                           |
 

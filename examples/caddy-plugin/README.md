@@ -45,7 +45,7 @@ And finally, you run caddy
 
 To generate a signed request, you can use the sibling [browser extension](../browser-extension).
 
-`directory_base` is the direct directory mode. `registry` is experimental registry draft support and can be repeated. `fail_on_load_error` defaults to `false`; set it to `true` if Caddy should fail provisioning when directories, registries, cards, IP lists, or keys cannot be loaded.
+`directory_base` is the direct directory mode. `registry` is experimental registry draft support and can be repeated. Keys are loaded during provisioning, so changes require a Caddy reload. `fail_on_load_error` defaults to `false`, returning 503 when no validator was loaded; set it to `true` to fail provisioning instead.
 
 ## Security Considerations
 
