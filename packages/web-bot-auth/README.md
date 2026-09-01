@@ -41,8 +41,8 @@ const request = new Request("https://example.com", {
   headers: { "Signature-Agent": signatureAgent },
 });
 
-// This is a testing-only private key/public key pair described in RFC 9421 Appendix B.1.4
-// Also available at https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
+// Published RFC 9421 test key. Never use it in production; see Security Considerations below.
+// Fixture: https://github.com/cloudflareresearch/web-bot-auth/blob/main/examples/rfc9421-keys/ed25519.json
 const RFC_9421_ED25519_TEST_KEY = {
   kty: "OKP",
   crv: "Ed25519",
@@ -109,7 +109,7 @@ const authenticated = await verify(signedRequest, {
 
 ## Security Considerations
 
-This software has not been audited. Please use at your sole discretion.
+This software has not been audited. Use it at your sole discretion. RFC test keys [must not be used in production](https://datatracker.ietf.org/doc/html/draft-meunier-webbotauth-httpsig-protocol-02#section-6.8). For production, [generate a unique asymmetric key](https://datatracker.ietf.org/doc/html/draft-meunier-webbotauth-httpsig-protocol-02#section-6.4) with [Web Crypto](https://github.com/cloudflare/web-bot-auth/tree/main/packages/jsonwebkey-thumbprint#usage) or [OpenSSL](https://developers.cloudflare.com/bots/concepts/bot/verified-bots/web-bot-auth/#1-generate-a-valid-signing-key). Publish only its public JWK values. [Overlap old and new public keys during rotation](https://datatracker.ietf.org/doc/html/draft-meunier-webbotauth-httpsig-protocol-02#section-5.5.2).
 
 ## License
 

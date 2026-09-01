@@ -19,7 +19,7 @@ Cloudflare Research provides a live environment at [http-message-signatures-exam
 
 Use this deployment to test an implementation.
 
-1. It validates the presence of a `Signature` header signed [RFC9421 ed25519 test key](./examples/rfc9421-keys/ed25519.pem),
+1. It validates the presence of a `Signature` header signed with a [published RFC 9421 test key](./examples/rfc9421-keys/ed25519.pem), which [must not be used in production](./packages/web-bot-auth/#security-considerations),
 2. It exposes a bot directory on [/.well-known/http-message-signatures-directory](https://http-message-signatures-example.research.cloudflare.com/.well-known/http-message-signatures-directory),
 3. It serves debug tools for request signatures, JWK key IDs, and directories.
 
