@@ -37,6 +37,7 @@ import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 
 const DIRECTORY_MEDIA_TYPE =
 	"application/http-message-signatures-directory+json";
+const DIRECTORY_MAX_KEYS = 100;
 
 interface Directory {
 	readonly keys: readonly JsonWebKey[];
@@ -87,6 +88,9 @@ function jsonWebKeyFromUnknown(value: unknown): JsonWebKey {
 function directoryFromUnknown(value: unknown): Directory {
 	if (!isRecord(value) || !Array.isArray(value.keys)) {
 		throw new Error("directory must contain keys");
+	}
+	if (value.keys.length > DIRECTORY_MAX_KEYS) {
+		throw new Error("directory contains too many keys");
 	}
 	return {
 		keys: value.keys.map(jsonWebKeyFromUnknown),
@@ -167,7 +171,7 @@ async function fetchDirectory(entry: SignatureAgentEntry): Promise<Directory> {
 
 	const card = parseSignatureAgentCard(await fetchJSON(entry.uri), entry.uri);
 	if (card.jwks !== undefined) {
-		return { keys: card.jwks.keys, purpose: "" };
+		return directoryFromUnknown(card.jwks);
 	}
 	if (card.jwks_uri === undefined) {
 		throw new Error("signature agent card must contain jwks or jwks_uri");
@@ -180,9 +184,15 @@ async function getSigner(): Promise<WebBotSigner> {
 }
 
 async function resolveVerifier(directory: Directory, keyid: string) {
-	const key = directory.keys.find((candidate) => candidate.kid === keyid);
-	if (key === undefined) throw new Error(`unknown key ${keyid}`);
-	return verifierFromJWK(key);
+	for (const key of directory.keys) {
+		try {
+			const verifier = await verifierFromJWK(key);
+			if (verifier.keyid === keyid) return verifier;
+		} catch {
+			continue;
+		}
+	}
+	throw new Error(`unknown key ${keyid}`);
 }
 
 function fields(headers: Headers): FieldOccurrence[] {

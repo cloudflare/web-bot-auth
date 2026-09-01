@@ -20,7 +20,10 @@ import {
 	SELF,
 } from "cloudflare:test";
 import { afterEach, describe, it, expect, vi } from "vitest";
+import { sign } from "web-bot-auth";
+import { signerFromJWK } from "web-bot-auth/crypto";
 import worker from "../src/index";
+import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -188,6 +191,33 @@ describe("/.well-known/http-message-signatures-directory endpoint", () => {
 		expect(response.headers.get("Signature")).toBeTruthy();
 		expect(response.headers.get("Signature-Input")).toBeTruthy();
 		expect(await response.json()).toMatchObject({ purpose: "rag" });
+	});
+});
+
+describe("/v0/api/verify endpoint", () => {
+	it("selects a key by thumbprint when kid differs", async () => {
+		const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
+			headers: {
+				"Signature-Agent": 'sig1="https://keys.example";type=directory',
+			},
+		});
+		const fields = await sign(request, {
+			expires: new Date(Date.now() + 300_000),
+			signer: await signerFromJWK(jwk),
+		});
+		request.headers.set("Signature", fields.signature);
+		request.headers.set("Signature-Input", fields.signatureInput);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() =>
+				Promise.resolve(
+					Response.json({ keys: [{ ...jwk, d: undefined, kid: "other" }] })
+				)
+			)
+		);
+
+		const response = await worker.fetch(request, env, createExecutionContext());
+		expect(await response.text()).toBe("valid");
 	});
 });
 
