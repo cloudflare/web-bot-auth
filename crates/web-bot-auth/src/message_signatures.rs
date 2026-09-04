@@ -785,7 +785,11 @@ mod tests {
     #[test]
     fn test_verifying_renamed_key() {
         let mut keyring = keyring_with_test_key();
-        assert!(keyring.rename_key(TEST_KEY_ID.to_string(), "renamed".to_string()));
+        assert!(
+            keyring
+                .try_rename_key(TEST_KEY_ID.to_string(), "renamed".to_string())
+                .is_ok()
+        );
         // The old identifier no longer resolves.
         let verifier = MessageVerifier::parse(&StandardTestVector {}, |(_, _)| true).unwrap();
         let err = verifier.verify(&keyring, None).unwrap_err();
