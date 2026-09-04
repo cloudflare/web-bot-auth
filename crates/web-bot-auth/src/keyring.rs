@@ -21,6 +21,15 @@ pub enum KeyringError {
     KeyAlreadyExists,
 }
 
+/// Errors that may occur when modifying a keyring.
+#[derive(Debug)]
+pub enum OperationError {
+    /// The old key is not present.
+    KeyNotPresent,
+    /// The new key identifier is already occupied.
+    KeyOccupied,
+}
+
 /// Represents a public key to be consumed during the verification.
 pub type PublicKey = Vec<u8>;
 
@@ -220,15 +229,40 @@ impl KeyRing {
 
     /// Rename a public key from `old_identifier` to `new_identifier`.
     ///
-    /// Returns `false` without modifying the keyring if the old key is absent or the new identifier
-    /// is already assigned to another key.
-    pub fn rename_key(&mut self, old_identifier: String, new_identifier: String) -> bool {
+    /// # Errors
+    ///
+    /// Returns [`OperationError::KeyNotPresent`] if the old key is absent, or
+    /// [`OperationError::KeyOccupied`] if the new identifier belongs to another key.
+    pub fn try_rename_key(
+        &mut self,
+        old_identifier: String,
+        new_identifier: String,
+    ) -> Result<(), OperationError> {
+        if !self.ring.contains_key(&old_identifier) {
+            return Err(OperationError::KeyNotPresent);
+        }
         if old_identifier == new_identifier {
-            return self.ring.contains_key(&old_identifier);
+            return Ok(());
         }
         if self.ring.contains_key(&new_identifier) {
-            return false;
+            return Err(OperationError::KeyOccupied);
         }
+
+        let value = self
+            .ring
+            .remove(&old_identifier)
+            .ok_or(OperationError::KeyNotPresent)?;
+        let replaced = self.ring.insert(new_identifier, value);
+        debug_assert!(replaced.is_none());
+        Ok(())
+    }
+
+    /// Rename a public key from `old_identifier` to `new_identifier`.
+    ///
+    /// This method does not safely handle destination conflicts. Use [`Self::try_rename_key`]
+    /// instead.
+    #[deprecated(note = "does not safely handle destination conflicts; use `try_rename_key`")]
+    pub fn rename_key(&mut self, old_identifier: String, new_identifier: String) -> bool {
         match self.ring.remove(&old_identifier) {
             Some(value) => self.ring.insert(new_identifier, value).is_none(),
             None => false,
@@ -279,7 +313,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rename_key_does_not_replace_existing_destination() {
+    fn try_rename_key_does_not_replace_existing_destination() {
         let mut keyring = KeyRing::default();
         let source_key = vec![1; 32];
         let destination_key = vec![2; 32];
@@ -290,7 +324,10 @@ mod tests {
             destination_key.clone(),
         ));
 
-        assert!(!keyring.rename_key("source".to_string(), "destination".to_string()));
+        assert!(matches!(
+            keyring.try_rename_key("source".to_string(), "destination".to_string()),
+            Err(OperationError::KeyOccupied)
+        ));
         assert_eq!(
             keyring.get(&"source".to_string()),
             Some(&(Algorithm::Ed25519, source_key))
@@ -302,9 +339,12 @@ mod tests {
     }
 
     #[test]
-    fn rename_key_to_same_identifier_reports_whether_key_exists() {
+    fn try_rename_key_to_same_identifier_reports_whether_key_exists() {
         let mut keyring = KeyRing::default();
-        assert!(!keyring.rename_key("missing".to_string(), "missing".to_string()));
+        assert!(matches!(
+            keyring.try_rename_key("missing".to_string(), "missing".to_string()),
+            Err(OperationError::KeyNotPresent)
+        ));
 
         let public_key = vec![1; 32];
         assert!(keyring.import_raw(
@@ -313,7 +353,11 @@ mod tests {
             public_key.clone(),
         ));
 
-        assert!(keyring.rename_key("existing".to_string(), "existing".to_string()));
+        assert!(
+            keyring
+                .try_rename_key("existing".to_string(), "existing".to_string())
+                .is_ok()
+        );
         assert_eq!(
             keyring.get(&"existing".to_string()),
             Some(&(Algorithm::Ed25519, public_key))
@@ -321,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_key_with_missing_source_does_not_modify_keyring() {
+    fn try_rename_key_with_missing_source_takes_precedence() {
         let mut keyring = KeyRing::default();
         let public_key = vec![1; 32];
         assert!(keyring.import_raw(
@@ -330,12 +374,14 @@ mod tests {
             public_key.clone(),
         ));
 
-        assert!(!keyring.rename_key("missing".to_string(), "new".to_string()));
+        assert!(matches!(
+            keyring.try_rename_key("missing".to_string(), "existing".to_string()),
+            Err(OperationError::KeyNotPresent)
+        ));
         assert_eq!(
             keyring.get(&"existing".to_string()),
             Some(&(Algorithm::Ed25519, public_key))
         );
-        assert!(keyring.get(&"new".to_string()).is_none());
     }
 
     #[test]
@@ -351,10 +397,14 @@ mod tests {
                 .get(&String::from("poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U"))
                 .is_some()
         );
-        assert!(keyring.rename_key(
-            String::from("poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U"),
-            String::from("test-key-ed25519")
-        ));
+        assert!(
+            keyring
+                .try_rename_key(
+                    String::from("poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U"),
+                    String::from("test-key-ed25519")
+                )
+                .is_ok()
+        );
         assert!(keyring.get(&String::from("test-key-ed25519")).is_some());
     }
 }
