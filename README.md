@@ -29,6 +29,7 @@ Use this deployment to test an implementation.
 | :------------------------------------------------- | :------------------------------------------- |
 | [Browser extension](./examples/browser-extension/) | Adds a `Signature` on every outgoing request |
 | [Rust](./examples/rust/)                           | Signs a hardcoded test request               |
+| [Cloudflare Workers](./examples/signing-worker/)   | Signs arbitrary outgoing requests            |
 
 ### Verifying
 
