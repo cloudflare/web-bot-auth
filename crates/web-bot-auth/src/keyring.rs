@@ -218,9 +218,17 @@ impl KeyRing {
                 .is_none()
     }
 
-    /// Rename a public key from `old_identifier` to `new_identifier`. Returns `false` if the old
-    /// key was not present.
+    /// Rename a public key from `old_identifier` to `new_identifier`.
+    ///
+    /// Returns `false` without modifying the keyring if the old key is absent or the new identifier
+    /// is already assigned to another key.
     pub fn rename_key(&mut self, old_identifier: String, new_identifier: String) -> bool {
+        if old_identifier == new_identifier {
+            return self.ring.contains_key(&old_identifier);
+        }
+        if self.ring.contains_key(&new_identifier) {
+            return false;
+        }
         match self.ring.remove(&old_identifier) {
             Some(value) => self.ring.insert(new_identifier, value).is_none(),
             None => false,
@@ -269,6 +277,66 @@ impl KeyRing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rename_key_does_not_replace_existing_destination() {
+        let mut keyring = KeyRing::default();
+        let source_key = vec![1; 32];
+        let destination_key = vec![2; 32];
+        assert!(keyring.import_raw("source".to_string(), Algorithm::Ed25519, source_key.clone()));
+        assert!(keyring.import_raw(
+            "destination".to_string(),
+            Algorithm::Ed25519,
+            destination_key.clone(),
+        ));
+
+        assert!(!keyring.rename_key("source".to_string(), "destination".to_string()));
+        assert_eq!(
+            keyring.get(&"source".to_string()),
+            Some(&(Algorithm::Ed25519, source_key))
+        );
+        assert_eq!(
+            keyring.get(&"destination".to_string()),
+            Some(&(Algorithm::Ed25519, destination_key))
+        );
+    }
+
+    #[test]
+    fn rename_key_to_same_identifier_reports_whether_key_exists() {
+        let mut keyring = KeyRing::default();
+        assert!(!keyring.rename_key("missing".to_string(), "missing".to_string()));
+
+        let public_key = vec![1; 32];
+        assert!(keyring.import_raw(
+            "existing".to_string(),
+            Algorithm::Ed25519,
+            public_key.clone(),
+        ));
+
+        assert!(keyring.rename_key("existing".to_string(), "existing".to_string()));
+        assert_eq!(
+            keyring.get(&"existing".to_string()),
+            Some(&(Algorithm::Ed25519, public_key))
+        );
+    }
+
+    #[test]
+    fn rename_key_with_missing_source_does_not_modify_keyring() {
+        let mut keyring = KeyRing::default();
+        let public_key = vec![1; 32];
+        assert!(keyring.import_raw(
+            "existing".to_string(),
+            Algorithm::Ed25519,
+            public_key.clone(),
+        ));
+
+        assert!(!keyring.rename_key("missing".to_string(), "new".to_string()));
+        assert_eq!(
+            keyring.get(&"existing".to_string()),
+            Some(&(Algorithm::Ed25519, public_key))
+        );
+        assert!(keyring.get(&"new".to_string()).is_none());
+    }
 
     #[test]
     fn test_importing_ed25519_key_from_jwks() {
