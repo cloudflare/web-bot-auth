@@ -232,7 +232,7 @@ impl KeyRing {
     /// # Errors
     ///
     /// Returns [`OperationError::KeyNotPresent`] if the old key is absent, or
-    /// [`OperationError::KeyOccupied`] if the new identifier belongs to another key.
+    /// [`OperationError::KeyOccupied`] if the new identifier is already present.
     pub fn try_rename_key(
         &mut self,
         old_identifier: String,
@@ -241,19 +241,16 @@ impl KeyRing {
         if !self.ring.contains_key(&old_identifier) {
             return Err(OperationError::KeyNotPresent);
         }
-        if old_identifier == new_identifier {
-            return Ok(());
-        }
         if self.ring.contains_key(&new_identifier) {
             return Err(OperationError::KeyOccupied);
         }
+        if old_identifier == new_identifier {
+            return Ok(());
+        }
 
-        let value = self
-            .ring
-            .remove(&old_identifier)
-            .ok_or(OperationError::KeyNotPresent)?;
-        let replaced = self.ring.insert(new_identifier, value);
-        debug_assert!(replaced.is_none());
+        if let Some(value) = self.ring.remove(&old_identifier) {
+            self.ring.insert(new_identifier, value);
+        }
         Ok(())
     }
 
@@ -261,7 +258,10 @@ impl KeyRing {
     ///
     /// This method does not safely handle destination conflicts. Use [`Self::try_rename_key`]
     /// instead.
-    #[deprecated(note = "does not safely handle destination conflicts; use `try_rename_key`")]
+    #[deprecated(
+        since = "0.7.1",
+        note = "does not safely handle destination conflicts; use `try_rename_key`"
+    )]
     pub fn rename_key(&mut self, old_identifier: String, new_identifier: String) -> bool {
         match self.ring.remove(&old_identifier) {
             Some(value) => self.ring.insert(new_identifier, value).is_none(),
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn try_rename_key_to_same_identifier_reports_whether_key_exists() {
+    fn try_rename_key_applies_error_precedence_to_same_identifier() {
         let mut keyring = KeyRing::default();
         assert!(matches!(
             keyring.try_rename_key("missing".to_string(), "missing".to_string()),
@@ -353,11 +353,10 @@ mod tests {
             public_key.clone(),
         ));
 
-        assert!(
-            keyring
-                .try_rename_key("existing".to_string(), "existing".to_string())
-                .is_ok()
-        );
+        assert!(matches!(
+            keyring.try_rename_key("existing".to_string(), "existing".to_string()),
+            Err(OperationError::KeyOccupied)
+        ));
         assert_eq!(
             keyring.get(&"existing".to_string()),
             Some(&(Algorithm::Ed25519, public_key))
