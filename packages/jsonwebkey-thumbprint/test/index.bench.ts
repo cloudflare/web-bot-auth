@@ -74,9 +74,9 @@ async function setupBenchmarks() {
         b64ToB64URL(b64ToB64NoPadding(u8ToB64(new Uint8Array(u))));
       bench(
         `${name} jwkThumbprint`,
-        () => {
+        async () => {
           for (const input of inputs) {
-            jwkThumbprint(input, hash, decode);
+            await jwkThumbprint(input, hash, decode);
           }
         },
         { iterations: 1000 }

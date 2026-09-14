@@ -38,12 +38,11 @@ export function createWebCryptoSigner(key: CryptoKey): Signer {
     );
   }
   const algorithm = signatureAlgorithm(key);
+  const parameters = cryptoParameters(key);
   return Object.freeze({
     algorithm,
     async sign(data: Uint8Array): Promise<Uint8Array> {
-      return new Uint8Array(
-        await crypto.subtle.sign(cryptoParameters(key), key, data)
-      );
+      return new Uint8Array(await crypto.subtle.sign(parameters, key, data));
     },
   });
 }
@@ -56,10 +55,11 @@ export function createWebCryptoVerifier(key: CryptoKey): Verifier {
     );
   }
   const algorithm = signatureAlgorithm(key);
+  const parameters = cryptoParameters(key);
   return Object.freeze({
     algorithm,
     verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
-      return crypto.subtle.verify(cryptoParameters(key), key, signature, data);
+      return crypto.subtle.verify(parameters, key, signature, data);
     },
   });
 }
