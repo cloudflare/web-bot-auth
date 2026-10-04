@@ -58,6 +58,15 @@ pub enum ImplementationError {
     /// of [registered IANA signature algorithms](https://www.iana.org/assignments/http-message-signature/http-message-signature.xhtml)
     /// implemented here is provided by `Algorithms` struct.
     UnsupportedAlgorithm(Algorithm),
+    /// The `alg` signature parameter names an algorithm that is not registered
+    /// or does not match the algorithm the resolved key material carries.
+    /// RFC 9421 Section 3.2, step 6, requires verification to fail in both cases.
+    AlgorithmMismatch {
+        /// The `alg` parameter as it appeared in `Signature-Input`.
+        signed: String,
+        /// The algorithm the key ring resolved for the selected key.
+        resolved: Algorithm,
+    },
     /// An attempt to resolve key identifier to a valid public key failed.
     /// This prevents message verification.
     NoSuchKey,
@@ -97,6 +106,12 @@ impl core::fmt::Display for ImplementationError {
             }
             ImplementationError::UnsupportedAlgorithm(alg) => {
                 write!(f, "unsupported algorithm: {alg:?}")
+            }
+            ImplementationError::AlgorithmMismatch { signed, resolved } => {
+                write!(
+                    f,
+                    "alg parameter {signed:?} does not match resolved key algorithm {resolved:?}"
+                )
             }
             ImplementationError::NoSuchKey => write!(f, "no such key"),
             ImplementationError::InvalidKeyLength => write!(f, "invalid key length"),
