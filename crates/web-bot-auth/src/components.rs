@@ -663,25 +663,18 @@ mod tests {
 
     #[test]
     fn test_known_edge_cases_in_derived_component_parsing() {
-        for (case, expected) in [(
-            r#""@query-param";name="foo";name="bar""#,
-            r#""@query-param";name="bar""#,
-        )]
-        .iter()
-        {
-            {
-                let component: CoveredComponent = sfv::Parser::new(case)
-                    .parse_item::<sfv::Item>()
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
-                let CoveredComponent::Derived(derived) = component else {
-                    panic!("Expected derived field, got HTTP")
-                };
-                let value: sfv::Item = derived.try_into().unwrap();
-                assert_eq!(value.serialize(), expected.to_ascii_lowercase());
-            }
-        }
+        let case = r#""@query-param";name="foo";name="bar""#;
+        let expected = r#""@query-param";name="bar""#;
+        let component: CoveredComponent = sfv::Parser::new(case)
+            .parse_item::<sfv::Item>()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let CoveredComponent::Derived(derived) = component else {
+            panic!("Expected derived field, got HTTP")
+        };
+        let value: sfv::Item = derived.try_into().unwrap();
+        assert_eq!(value.serialize(), expected);
     }
 
     #[test]
