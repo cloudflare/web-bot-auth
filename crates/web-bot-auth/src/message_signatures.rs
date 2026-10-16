@@ -591,6 +591,13 @@ impl MessageVerifier {
                 .and_then(|key| keyring.get_prepared(key)),
         })
         .ok_or(ImplementationError::NoSuchKey)?;
+        let parameters = &self.parsed.base.parameters;
+        if parameters.raw.get("alg").is_some()
+            && parameters.details.algorithm.as_ref() != Some(algorithm)
+            && !matches!(prepared, PreparedKey::Unsupported)
+        {
+            return Err(ImplementationError::AlgorithmMismatch);
+        }
         let generation = UtcDateTime::now();
         let (base_representation, _) = self.parsed.base.into_ascii()?;
         let generation = (UtcDateTime::now() - generation).unsigned_abs();
@@ -743,6 +750,31 @@ mod tests {
         }
         let keyring = keyring_with_test_key();
         let verifier = MessageVerifier::parse(&TamperedSignature {}, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(err, ImplementationError::FailedToVerify(_)));
+    }
+
+    #[test]
+    fn test_verifying_checks_alg_against_key() {
+        // RFC 9421 Section 3.2, step 6.
+        struct WithAlg(&'static str);
+        impl SignedMessage for WithAlg {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                (StandardTestVector {})
+                    .lookup_component(name)
+                    .into_iter()
+                    .map(|value| value.replace(r#";alg="ed25519""#, self.0))
+                    .collect()
+            }
+        }
+        let keyring = keyring_with_test_key();
+        for alg in [r#";alg="rsa-pss-sha512""#, r#";alg="foo""#] {
+            let verifier = MessageVerifier::parse(&WithAlg(alg), |(_, _)| true).unwrap();
+            let err = verifier.verify(&keyring, None).unwrap_err();
+            assert!(matches!(err, ImplementationError::AlgorithmMismatch));
+        }
+        // Without `alg`, the key decides; the altered base then fails verification.
+        let verifier = MessageVerifier::parse(&WithAlg(""), |(_, _)| true).unwrap();
         let err = verifier.verify(&keyring, None).unwrap_err();
         assert!(matches!(err, ImplementationError::FailedToVerify(_)));
     }
