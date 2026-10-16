@@ -1,5 +1,8 @@
-import { describe, bench } from "vitest";
-import { jwkThumbprintPreCompute, jwkThumbprint } from "../src";
+import { test } from "vitest";
+import * as thumbprint from "../src";
+
+// Bind exports locally so module runner getters do not skew the results.
+const { jwkThumbprintPreCompute, jwkThumbprint } = thumbprint;
 
 const u8ToB64 = (u: Uint8Array) => btoa(String.fromCharCode(...u));
 
@@ -56,29 +59,22 @@ async function setupBenchmarks() {
     // use just one random key for the benchmark
     const inputs = await randomKeys(1, name);
 
-    describe(`Benchmark for ${name}`, () => {
-      bench(
-        `${name} jwkThumbprintPreCompute`,
-        () => {
+    const hash = (b: BufferSource) => crypto.subtle.digest("SHA-256", b);
+    const decode = (u: ArrayBuffer) =>
+      b64ToB64URL(b64ToB64NoPadding(u8ToB64(new Uint8Array(u))));
+
+    test(`Benchmark for ${name}`, async ({ bench }) => {
+      await bench.compare(
+        bench(`${name} jwkThumbprintPreCompute`, () => {
           for (const input of inputs) {
             jwkThumbprintPreCompute(input);
           }
-        },
-        { iterations: 1000 }
-      );
-    });
-
-    describe(`Benchmark for ${name}`, () => {
-      const hash = (b: BufferSource) => crypto.subtle.digest("SHA-256", b);
-      const decode = (u: ArrayBuffer) =>
-        b64ToB64URL(b64ToB64NoPadding(u8ToB64(new Uint8Array(u))));
-      bench(
-        `${name} jwkThumbprint`,
-        async () => {
+        }),
+        bench(`${name} jwkThumbprint`, async () => {
           for (const input of inputs) {
             await jwkThumbprint(input, hash, decode);
           }
-        },
+        }),
         { iterations: 1000 }
       );
     });

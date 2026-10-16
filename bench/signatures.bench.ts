@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { describe, test } from "vitest";
 import { operations } from "./fixtures.mjs";
 
 const options = {
@@ -7,13 +7,23 @@ const options = {
 };
 
 describe("HTTP message signatures", () => {
-  bench("core sign without crypto", operations.coreSign, options);
-  bench("core verify without crypto", operations.coreVerify, options);
+  test("core without crypto", async ({ bench }) => {
+    await bench.compare(
+      bench("core sign without crypto", operations.coreSign),
+      bench("core verify without crypto", operations.coreVerify),
+      options
+    );
+  });
 });
 
 describe("Web Bot Auth", () => {
-  bench("sign Ed25519", operations.sign, options);
-  bench("verify Ed25519", operations.verify, options);
-  bench("create Ed25519 signer", operations.signerFromJWK, options);
-  bench("create Ed25519 verifier", operations.verifierFromJWK, options);
+  test("Ed25519", async ({ bench }) => {
+    await bench.compare(
+      bench("sign Ed25519", operations.sign),
+      bench("verify Ed25519", operations.verify),
+      bench("create Ed25519 signer", operations.signerFromJWK),
+      bench("create Ed25519 verifier", operations.verifierFromJWK),
+      options
+    );
+  });
 });

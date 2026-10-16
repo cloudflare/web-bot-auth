@@ -9,7 +9,7 @@
   "author": "Thibault Meunier",
   "private": true,
   "scripts": {
-    "bench": "npm run build && vitest bench --run",
+    "bench": "npm run build && vitest bench --run --reporter=verbose",
     "bench:trace": "npm run build && node bench/trace.mjs",
     "build": "npm run build -w http-message-sig -w jsonwebkey-thumbprint -w web-bot-auth",
     "format": "prettier --write . && oxlint bench examples packages --ignore-pattern **/dist/** --fix",

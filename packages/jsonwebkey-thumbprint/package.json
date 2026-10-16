@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "bench": "vitest bench",
+    "bench": "vitest bench --reporter=verbose",
     "build": "tsdown src/index.ts --format esm,cjs --target es2021",
     "prepublishOnly": "npm run build",
     "test": "vitest",
