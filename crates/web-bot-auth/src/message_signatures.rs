@@ -591,6 +591,28 @@ impl MessageVerifier {
                 .and_then(|key| keyring.get_prepared(key)),
         })
         .ok_or(ImplementationError::NoSuchKey)?;
+        // RFC 9421 Section 3.2, step 6: when the message carries an `alg`
+        // parameter it must name a registered algorithm (6.1, 6.4) and must
+        // agree with the algorithm the key material resolves to (6.5). Keys
+        // whose algorithm this crate cannot verify keep reporting
+        // `UnsupportedAlgorithm` below.
+        if !matches!(prepared, PreparedKey::Unsupported)
+            && let Some(signed) = self.parsed.base.parameters.raw.get("alg")
+        {
+            let matches_key = matches!(
+                &self.parsed.base.parameters.details.algorithm,
+                Some(parsed) if parsed == algorithm
+            );
+            if !matches_key {
+                return Err(ImplementationError::AlgorithmMismatch {
+                    signed: signed
+                        .as_string()
+                        .map(|s| s.as_str().to_string())
+                        .unwrap_or_else(|| format!("{signed:?}")),
+                    resolved: algorithm.clone(),
+                });
+            }
+        }
         let generation = UtcDateTime::now();
         let (base_representation, _) = self.parsed.base.into_ascii()?;
         let generation = (UtcDateTime::now() - generation).unsigned_abs();
@@ -697,6 +719,111 @@ mod tests {
             TEST_PUBLIC_KEY.to_vec(),
         );
         keyring
+    }
+
+    const TEST_PRIVATE_KEY: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
+        0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c, 0x0e,
+        0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f, 0x6a, 0x7d,
+        0x29, 0xc5,
+    ];
+
+    /// A message covering `("@authority")` signed with the test key, with the
+    /// given signature parameters suffix (for example `;keyid="…";alg="ed25519"`).
+    struct ParamsVector {
+        signature_input: String,
+        signature_header: String,
+    }
+
+    impl ParamsVector {
+        fn signed(params_suffix: &str) -> Self {
+            use ed25519_dalek::{Signer, SigningKey};
+
+            let params = format!("(\"@authority\"){params_suffix}");
+            let base = format!("\"@authority\": example.com\n\"@signature-params\": {params}");
+            let signing_key = SigningKey::try_from(&TEST_PRIVATE_KEY[..]).expect("test key length");
+            let signature = sfv::Item {
+                bare_item: sfv::BareItem::ByteSequence(
+                    signing_key.sign(base.as_bytes()).to_bytes().to_vec(),
+                ),
+                params: sfv::Parameters::new(),
+            }
+            .serialize();
+            ParamsVector {
+                signature_input: format!("sig1={params}"),
+                signature_header: format!("sig1={signature}"),
+            }
+        }
+    }
+
+    impl SignedMessage for ParamsVector {
+        fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+            match name {
+                CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                    if name == "signature" {
+                        return vec![self.signature_header.clone()];
+                    }
+                    if name == "signature-input" {
+                        return vec![self.signature_input.clone()];
+                    }
+                    vec![]
+                }
+                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                    vec!["example.com".to_string()]
+                }
+                _ => vec![],
+            }
+        }
+    }
+
+    #[test]
+    fn test_verifying_rejects_alg_disagreeing_with_key_algorithm() {
+        // RFC 9421 Section 3.2, step 6.5.
+        let keyring = keyring_with_test_key();
+        let message =
+            ParamsVector::signed(&format!(";keyid=\"{TEST_KEY_ID}\";alg=\"rsa-pss-sha512\""));
+        let verifier = MessageVerifier::parse(&message, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::AlgorithmMismatch {
+                ref signed,
+                resolved: Algorithm::Ed25519,
+            } if signed == "rsa-pss-sha512"
+        ));
+    }
+
+    #[test]
+    fn test_verifying_rejects_unregistered_alg() {
+        // RFC 9421 Section 3.2, steps 6.1 and 6.4.
+        let keyring = keyring_with_test_key();
+        let message = ParamsVector::signed(&format!(";keyid=\"{TEST_KEY_ID}\";alg=\"foo\""));
+        let verifier = MessageVerifier::parse(&message, |(_, _)| true).unwrap();
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::AlgorithmMismatch {
+                ref signed,
+                resolved: Algorithm::Ed25519,
+            } if signed == "foo"
+        ));
+    }
+
+    #[test]
+    fn test_verifying_accepts_matching_alg() {
+        let keyring = keyring_with_test_key();
+        let message = ParamsVector::signed(&format!(";keyid=\"{TEST_KEY_ID}\";alg=\"ed25519\""));
+        let verifier = MessageVerifier::parse(&message, |(_, _)| true).unwrap();
+        assert!(verifier.verify(&keyring, None).is_ok());
+    }
+
+    #[test]
+    fn test_verifying_accepts_absent_alg() {
+        // `alg` is optional; the algorithm then comes from the key material
+        // (RFC 9421 Section 3.2, step 6.3).
+        let keyring = keyring_with_test_key();
+        let message = ParamsVector::signed(&format!(";keyid=\"{TEST_KEY_ID}\""));
+        let verifier = MessageVerifier::parse(&message, |(_, _)| true).unwrap();
+        assert!(verifier.verify(&keyring, None).is_ok());
     }
 
     #[test]
