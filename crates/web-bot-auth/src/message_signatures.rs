@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use regex::bytes::Regex;
 use sfv::FieldType;
 use time::UtcDateTime;
@@ -144,12 +144,19 @@ impl TryFrom<sfv::InnerList> for SignatureBaseBuilder {
     type Error = ImplementationError;
 
     fn try_from(value: sfv::InnerList) -> Result<Self, Self::Error> {
+        let components = value
+            .items
+            .iter()
+            .map(|item| (*item).clone().try_into())
+            .collect::<Result<Vec<CoveredComponent>, ImplementationError>>()?;
+        // RFC 9421 Section 2.5, step 2.1: each component identifier occurs only once.
+        if IndexSet::<&CoveredComponent>::from_iter(&components).len() != components.len() {
+            return Err(ImplementationError::ParsingError(
+                "duplicate covered component".to_string(),
+            ));
+        }
         Ok(SignatureBaseBuilder {
-            components: value
-                .items
-                .iter()
-                .map(|item| (*item).clone().try_into())
-                .collect::<Result<Vec<CoveredComponent>, ImplementationError>>()?,
+            components,
             // Note: it is the responsibility of higher layers to check whether the message is
             // expired, down here we just parse.
             parameters: value.params.into(),
@@ -752,6 +759,24 @@ mod tests {
         let verifier = MessageVerifier::parse(&TamperedSignature {}, |(_, _)| true).unwrap();
         let err = verifier.verify(&keyring, None).unwrap_err();
         assert!(matches!(err, ImplementationError::FailedToVerify(_)));
+    }
+
+    #[test]
+    fn test_parsing_rejects_duplicate_components() {
+        struct Duplicated;
+        impl SignedMessage for Duplicated {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                (StandardTestVector {})
+                    .lookup_component(name)
+                    .into_iter()
+                    .map(|value| {
+                        value.replace(r#"("@authority")"#, r#"("@authority" "@authority")"#)
+                    })
+                    .collect()
+            }
+        }
+        let err = MessageVerifier::parse(&Duplicated, |(_, _)| true).unwrap_err();
+        assert!(matches!(err, ImplementationError::ParsingError(_)));
     }
 
     #[test]
