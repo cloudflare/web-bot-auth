@@ -11,8 +11,8 @@
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-plugin": "^1.4.0",
-		"@cloudflare/workers-types": "^5.20260916.1",
+		"@cloudflare/vitest-plugin": "^1.4.2",
+		"@cloudflare/workers-types": "^5.20261014.1",
 		"wrangler": "^4.132.0"
 	}
 }
