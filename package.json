@@ -19,8 +19,8 @@
   "license": "Apache-2.0",
   "version": "0.0.0",
   "devDependencies": {
-    "oxlint": "1.83.0",
-    "prettier": "3.9.7",
+    "oxlint": "1.88.0",
+    "prettier": "3.9.10",
     "rimraf": "6.1.3",
     "tsdown": "0.23.0",
     "typescript": "7.0.2",
