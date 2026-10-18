@@ -536,16 +536,30 @@ mod tests {
     }
 
     #[test]
-    fn rejects_directory_signature_agent_without_https() {
-        for header in [
-            "sig1=\"http://signature-agent.test\"",
-            "sig1=\"http://signature-agent.test\";type=directory",
-            "\"http://signature-agent.test\"",
+    fn rejects_signature_agent_without_https() {
+        for (header, discovery_type) in [
+            ("sig1=\"http://signature-agent.test\"", "directory"),
+            (
+                "sig1=\"http://signature-agent.test\";type=directory",
+                "directory",
+            ),
+            ("\"http://signature-agent.test\"", "directory"),
+            (
+                "sig1=\"http://signature-agent.test/jwks.json\";type=jwks_uri",
+                "jwks_uri",
+            ),
+            (
+                "sig1=\"http://signature-agent.test/card\";type=cimd",
+                "cimd",
+            ),
         ] {
             let error = parse_signature_agent_header(header)
                 .unwrap_err()
                 .to_string();
-            assert!(error.contains("directory Signature-Agent must use https"));
+            assert!(
+                error.contains(&format!("{discovery_type} Signature-Agent must use https")),
+                "{header}: {error}"
+            );
         }
     }
 

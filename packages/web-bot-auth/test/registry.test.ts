@@ -24,12 +24,14 @@ describe("Signature-Agent invalid syntax", () => {
   });
 
   it.each([
-    'sig1="http://signature-agent.test"',
-    'sig1="http://signature-agent.test";type=directory',
-    '"http://signature-agent.test"',
-  ])("rejects a directory without https %s", (header) => {
+    ['sig1="http://signature-agent.test"', "directory"],
+    ['sig1="http://signature-agent.test";type=directory', "directory"],
+    ['"http://signature-agent.test"', "directory"],
+    ['sig1="http://signature-agent.test/jwks.json";type=jwks_uri', "jwks_uri"],
+    ['sig1="http://signature-agent.test/card";type=cimd', "cimd"],
+  ])("rejects %s without https", (header, type) => {
     expect(() => parseSignatureAgentHeader(header)).toThrow(
-      "directory Signature-Agent must use https"
+      `${type} Signature-Agent must use https`
     );
   });
 
