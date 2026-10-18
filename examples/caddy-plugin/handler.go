@@ -77,11 +77,14 @@ func NewValidator(keys keySpecs) (*SignatureValidator, error) {
 	return &SignatureValidator{keys: keyman.NewKeyFetchInMemory(keys)}, nil
 }
 
+const webBotAuthTag = "web-bot-auth"
+
 func verifyProfile(label string) httpsig.VerifyProfile {
 	return httpsig.VerifyProfile{
-		AllowedAlgorithms:    []httpsig.Algorithm{httpsig.Algo_ED25519},
-		RequiredFields:       httpsig.Fields("@authority"),
-		RequiredMetadata:     httpsig.DefaultVerifyProfile.RequiredMetadata,
+		AllowedAlgorithms: []httpsig.Algorithm{httpsig.Algo_ED25519},
+		RequiredFields:    httpsig.Fields("@authority"),
+		// Section 5.2 of draft-ietf-webbotauth-httpsig-protocol-00
+		RequiredMetadata:     []httpsig.Metadata{httpsig.MetaCreated, httpsig.MetaExpires, httpsig.MetaKeyID, httpsig.MetaTag},
 		DisallowedMetadata:   []httpsig.Metadata{},
 		CreatedValidDuration: time.Minute * 5, // Signatures must have been created within the last 5 minutes
 		ExpiredSkew:          time.Minute,     // If the created parameter is present, the Date header cannot be more than a minute off.
@@ -89,25 +92,72 @@ func verifyProfile(label string) httpsig.VerifyProfile {
 	}
 }
 
-func signatureLabels(r *http.Request) ([]string, error) {
-	signatureInput := r.Header.Get("Signature-Input")
-	if signatureInput == "" {
+type signatureCandidate struct {
+	label      string
+	components sfv.InnerList
+}
+
+// webBotAuthLabels returns the signatures tagged web-bot-auth, in header order.
+func webBotAuthLabels(r *http.Request) ([]signatureCandidate, error) {
+	signatureInput := r.Header.Values("Signature-Input")
+	if len(signatureInput) == 0 {
 		return nil, errors.New("missing signature-input header")
 	}
-	dictionary, err := sfv.UnmarshalDictionary([]string{signatureInput})
+	dictionary, err := sfv.UnmarshalDictionary(signatureInput)
 	if err != nil {
 		return nil, err
 	}
-	return dictionary.Names(), nil
+	labels := []signatureCandidate{}
+	for _, label := range dictionary.Names() {
+		member, _ := dictionary.Get(label)
+		components, ok := member.(sfv.InnerList)
+		if !ok {
+			continue
+		}
+		if tag, _ := components.Params.Get("tag"); tag == webBotAuthTag {
+			labels = append(labels, signatureCandidate{label, components})
+		}
+	}
+	if len(labels) == 0 {
+		return nil, errors.New("no web-bot-auth signature")
+	}
+	return labels, nil
+}
+
+// coversSignatureAgent reports whether a signature covers exactly one Signature-Agent
+// member, as Section 5.2.1 requires when the header is present. The legacy String form
+// is covered without a key.
+func coversSignatureAgent(r *http.Request, components sfv.InnerList) bool {
+	header := r.Header.Values("Signature-Agent")
+	if len(header) == 0 {
+		return true
+	}
+	_, err := sfv.UnmarshalDictionary(header)
+	keyed := err == nil
+	count := 0
+	for _, component := range components.Items {
+		if component.Value != "signature-agent" {
+			continue
+		}
+		if _, hasKey := component.Params.Get("key"); hasKey == keyed {
+			count++
+		}
+	}
+	return count == 1
 }
 
 func (v *SignatureValidator) Validate(r *http.Request) (string, error) {
-	labels, err := signatureLabels(r)
+	labels, err := webBotAuthLabels(r)
 	if err != nil {
 		return "", err
 	}
 	var lastErr error
-	for _, label := range labels {
+	for _, candidate := range labels {
+		label := candidate.label
+		if !coversSignatureAgent(r, candidate.components) {
+			lastErr = fmt.Errorf("signature %s does not cover one Signature-Agent member", label)
+			continue
+		}
 		verifier, err := httpsig.NewVerifier(v.keys, verifyProfile(label))
 		if err != nil {
 			return "", fmt.Errorf("creating verifier: %w", err)
