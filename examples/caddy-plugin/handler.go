@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	sfv "github.com/dunglas/httpsfv"
@@ -124,26 +125,29 @@ func webBotAuthLabels(r *http.Request) ([]signatureCandidate, error) {
 	return labels, nil
 }
 
-// coversSignatureAgent reports whether a signature covers exactly one Signature-Agent
-// member, as Section 5.2.1 requires when the header is present. The legacy String form
-// is covered without a key.
-func coversSignatureAgent(r *http.Request, components sfv.InnerList) bool {
+// coversSignatureAgent reports whether a signature covers the Signature-Agent member
+// keyed to its label, as Section 5.2.1 requires when the header is present. The legacy
+// String form is a single member keyed to the label, so it is covered without a key.
+func coversSignatureAgent(r *http.Request, label string, components sfv.InnerList) bool {
 	header := r.Header.Values("Signature-Agent")
 	if len(header) == 0 {
 		return true
 	}
-	_, err := sfv.UnmarshalDictionary(header)
-	keyed := err == nil
-	count := 0
-	for _, component := range components.Items {
-		if component.Value != "signature-agent" {
-			continue
+	var key any
+	if dictionary, err := sfv.UnmarshalDictionary(header); err == nil {
+		if _, ok := dictionary.Get(label); !ok {
+			return false
 		}
-		if _, hasKey := component.Params.Get("key"); hasKey == keyed {
-			count++
-		}
+		key = label
+	} else if item, err := sfv.UnmarshalItem(header); err != nil {
+		return false
+	} else if _, ok := item.Value.(string); !ok {
+		return false
 	}
-	return count == 1
+	return slices.ContainsFunc(components.Items, func(component sfv.Item) bool {
+		componentKey, _ := component.Params.Get("key")
+		return component.Value == "signature-agent" && componentKey == key
+	})
 }
 
 func (v *SignatureValidator) Validate(r *http.Request) (string, error) {
@@ -154,8 +158,8 @@ func (v *SignatureValidator) Validate(r *http.Request) (string, error) {
 	var lastErr error
 	for _, candidate := range labels {
 		label := candidate.label
-		if !coversSignatureAgent(r, candidate.components) {
-			lastErr = fmt.Errorf("signature %s does not cover one Signature-Agent member", label)
+		if !coversSignatureAgent(r, label, candidate.components) {
+			lastErr = fmt.Errorf("signature %s does not cover its Signature-Agent member", label)
 			continue
 		}
 		verifier, err := httpsig.NewVerifier(v.keys, verifyProfile(label))
