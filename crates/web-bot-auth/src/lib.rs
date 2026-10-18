@@ -238,7 +238,7 @@ impl WebBotAuthVerifier {
         }
 
         let parse_link = |link_str: &str, discovery_type: &SignatureAgentDiscoveryType, legacy| {
-            if link_str.starts_with("https://") || link_str.starts_with("http://") {
+            if link_str.starts_with("https://") {
                 return Some(match discovery_type {
                     SignatureAgentDiscoveryType::Directory => {
                         if legacy {
