@@ -249,6 +249,36 @@ describe("Signature-Agent coverage", () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
+  it("rejects an http directory member before resolution", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: { "signature-agent": 'sig1="http://bot.example"' },
+    });
+    const fields = await createSignature(request, {
+      signer,
+      components: ["@authority", component("signature-agent", { key: "sig1" })],
+      parameters: {
+        created: Math.floor(created.getTime() / 1000),
+        expires: Math.floor(expires.getTime() / 1000),
+        keyid: signer.keyid,
+        alg: signer.algorithm,
+        tag: "web-bot-auth",
+      },
+    });
+    const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+    await expect(
+      verify(withSignature(request, fields), { resolver, now })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: {
+        message: expect.stringContaining(
+          "directory Signature-Agent must use https"
+        ),
+      },
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
   it("authenticates a member key independent from the signature label", async () => {
     const signer = await signerFromJWK(ed25519Jwk);
     const request = new Request("https://example.com", {
