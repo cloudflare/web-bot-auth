@@ -477,6 +477,65 @@ pub struct SignatureTiming {
     pub verification: Duration,
 }
 
+/// Parses a dictionary while counting its keys, since RFC 9651 parsing keeps only
+/// the last of duplicated keys.
+#[derive(Default)]
+struct CountingDictionary {
+    dictionary: sfv::Dictionary,
+    keys: usize,
+}
+
+impl<'de> sfv::visitor::DictionaryVisitor<'de> for CountingDictionary {
+    type Out = (sfv::Dictionary, usize);
+    type Error = std::convert::Infallible;
+
+    fn entry(
+        &mut self,
+        key: &'de sfv::KeyRef,
+    ) -> Result<impl sfv::visitor::EntryVisitor<'de>, Self::Error> {
+        self.keys += 1;
+        sfv::visitor::DictionaryVisitor::entry(&mut self.dictionary, key)
+    }
+
+    fn finish(self) -> Result<Self::Out, Self::Error> {
+        Ok((self.dictionary, self.keys))
+    }
+}
+
+/// Parses and merges every value of the `Signature-Input` or `Signature` field.
+/// RFC 9421 Sections 4.1 and 4.2: labels are unique across all field values.
+fn parse_signature_dictionary(
+    message: &impl SignedMessage,
+    field: &str,
+) -> Result<sfv::Dictionary, ImplementationError> {
+    let (dictionary, labels) = message
+        .lookup_component(&CoveredComponent::HTTP(HTTPField {
+            name: field.to_ascii_lowercase(),
+            parameters: components::HTTPFieldParametersSet(vec![]),
+        }))
+        .into_iter()
+        .filter_map(|value| {
+            sfv::Parser::new(&value)
+                .parse_dictionary_with_visitor(CountingDictionary::default())
+                .ok()
+        })
+        .reduce(|(mut acc, count), (dictionary, more)| {
+            acc.extend(dictionary);
+            (acc, count + more)
+        })
+        .ok_or_else(|| {
+            ImplementationError::ParsingError(format!(
+                "No validly-formatted `{field}` headers found"
+            ))
+        })?;
+    if dictionary.len() != labels {
+        return Err(ImplementationError::ParsingError(format!(
+            "duplicate label in `{field}`"
+        )));
+    }
+    Ok(dictionary)
+}
+
 impl MessageVerifier {
     /// Parse a message into a structure that is ready for verification against an
     /// external key with a suitable algorithm. `pick` is a predicate
@@ -490,43 +549,8 @@ impl MessageVerifier {
     where
         P: Fn(&(sfv::Key, sfv::InnerList)) -> bool,
     {
-        let signature_input = message
-            .lookup_component(&CoveredComponent::HTTP(HTTPField {
-                name: "signature-input".to_string(),
-                parameters: components::HTTPFieldParametersSet(vec![]),
-            }))
-            .into_iter()
-            .filter_map(|sig_input| {
-                sfv::Parser::new(&sig_input)
-                    .parse_dictionary::<sfv::Dictionary>()
-                    .ok()
-            })
-            .reduce(|mut acc, sig_input| {
-                acc.extend(sig_input);
-                acc
-            })
-            .ok_or(ImplementationError::ParsingError(
-                "No validly-formatted `Signature-Input` headers found".to_string(),
-            ))?;
-
-        let mut signature_header = message
-            .lookup_component(&CoveredComponent::HTTP(HTTPField {
-                name: "signature".to_string(),
-                parameters: components::HTTPFieldParametersSet(vec![]),
-            }))
-            .into_iter()
-            .filter_map(|sig_input| {
-                sfv::Parser::new(&sig_input)
-                    .parse_dictionary::<sfv::Dictionary>()
-                    .ok()
-            })
-            .reduce(|mut acc, sig_input| {
-                acc.extend(sig_input);
-                acc
-            })
-            .ok_or(ImplementationError::ParsingError(
-                "No validly-formatted `Signature` headers found".to_string(),
-            ))?;
+        let signature_input = parse_signature_dictionary(message, "Signature-Input")?;
+        let mut signature_header = parse_signature_dictionary(message, "Signature")?;
 
         let (label, innerlist) = signature_input
             .into_iter()
@@ -777,6 +801,38 @@ mod tests {
         }
         let err = MessageVerifier::parse(&Duplicated, |(_, _)| true).unwrap_err();
         assert!(matches!(err, ImplementationError::ParsingError(_)));
+    }
+
+    #[test]
+    fn test_parsing_rejects_duplicate_labels() {
+        // RFC 9421 Sections 4.1 and 4.2.
+        struct Duplicated {
+            field: &'static str,
+            same_value: bool,
+        }
+        impl SignedMessage for Duplicated {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                let values = (StandardTestVector {}).lookup_component(name);
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) if name == self.field => {
+                        let value = &values[0];
+                        if self.same_value {
+                            vec![format!("{value}, {value}")]
+                        } else {
+                            vec![value.clone(), value.clone()]
+                        }
+                    }
+                    _ => values,
+                }
+            }
+        }
+        for field in ["signature-input", "signature"] {
+            for same_value in [true, false] {
+                let message = Duplicated { field, same_value };
+                let err = MessageVerifier::parse(&message, |(_, _)| true).unwrap_err();
+                assert!(matches!(err, ImplementationError::ParsingError(_)));
+            }
+        }
     }
 
     #[test]
