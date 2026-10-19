@@ -154,16 +154,45 @@ func signedRequest(t *testing.T, privateKey ed25519.PrivateKey, keyID string) *h
 
 func signedRequestWithLabel(t *testing.T, privateKey ed25519.PrivateKey, keyID string, label string) *http.Request {
 	t.Helper()
+	return signedRequestWith(t, privateKey, keyID, signingOptions{label: label})
+}
 
+type signingOptions struct {
+	label          string
+	tag            string
+	metadata       []httpsiggo.Metadata
+	fields         []httpsiggo.SignedField
+	signatureAgent string
+}
+
+func signedRequestWith(t *testing.T, privateKey ed25519.PrivateKey, keyID string, opts signingOptions) *http.Request {
+	t.Helper()
+
+	if opts.label == "" {
+		opts.label = "sig1"
+	}
+	if opts.tag == "" {
+		opts.tag = webBotAuthTag
+	}
+	if opts.metadata == nil {
+		opts.metadata = []httpsiggo.Metadata{httpsiggo.MetaCreated, httpsiggo.MetaExpires, httpsiggo.MetaKeyID, httpsiggo.MetaTag}
+	}
+	if opts.fields == nil {
+		opts.fields = httpsiggo.Fields("@authority")
+	}
 	req := httptest.NewRequest("GET", "https://example.com/data", nil)
+	if opts.signatureAgent != "" {
+		req.Header.Set("Signature-Agent", opts.signatureAgent)
+	}
 	signer, err := httpsiggo.NewSigner(httpsiggo.SigningProfile{
 		Algorithm: httpsiggo.Algo_ED25519,
-		Fields:    httpsiggo.Fields("@authority"),
-		Metadata:  []httpsiggo.Metadata{httpsiggo.MetaCreated, httpsiggo.MetaKeyID},
-		Label:     label,
+		Fields:    opts.fields,
+		Metadata:  opts.metadata,
+		Label:     opts.label,
 	}, httpsiggo.SigningKey{
 		Key:       privateKey,
 		MetaKeyID: keyID,
+		MetaTag:   opts.tag,
 	})
 	if err != nil {
 		t.Fatalf("new signer: %v", err)
@@ -172,4 +201,49 @@ func signedRequestWithLabel(t *testing.T, privateKey ed25519.PrivateKey, keyID s
 		t.Fatalf("sign request: %v", err)
 	}
 	return req
+}
+
+func TestValidateAppliesWebBotAuthRules(t *testing.T) {
+	keys := keySpecs{}
+	jwk, privateKey, keyID := testJWK(t)
+	if _, err := keys.addJWK(jwk); err != nil {
+		t.Fatalf("add key: %v", err)
+	}
+	validator, err := NewValidator(keys)
+	if err != nil {
+		t.Fatalf("new validator: %v", err)
+	}
+	agentMember := httpsiggo.SignedField{Name: "signature-agent", Parameters: map[string]any{"key": "sig1"}}
+	otherMember := httpsiggo.SignedField{Name: "signature-agent", Parameters: map[string]any{"key": "sig2"}}
+	legacyAgent := httpsiggo.SignedField{Name: "signature-agent", Parameters: map[string]any{}}
+	authority := httpsiggo.Fields("@authority")[0]
+	twoAgents := `sig1="https://bot.example", sig2="https://other.example"`
+
+	for _, tc := range []struct {
+		name  string
+		opts  signingOptions
+		valid bool
+	}{
+		{name: "covered member", opts: signingOptions{signatureAgent: `sig1="https://bot.example"`, fields: []httpsiggo.SignedField{authority, agentMember}}, valid: true},
+		{name: "covered legacy string", opts: signingOptions{signatureAgent: `"https://bot.example"`, fields: []httpsiggo.SignedField{authority, legacyAgent}}, valid: true},
+		{name: "covered member and another label's member", opts: signingOptions{signatureAgent: twoAgents, fields: []httpsiggo.SignedField{authority, agentMember, otherMember}}, valid: true},
+		{name: "other tag", opts: signingOptions{tag: "other"}},
+		{name: "no tag", opts: signingOptions{metadata: []httpsiggo.Metadata{httpsiggo.MetaCreated, httpsiggo.MetaExpires, httpsiggo.MetaKeyID}}},
+		{name: "no expires", opts: signingOptions{metadata: []httpsiggo.Metadata{httpsiggo.MetaCreated, httpsiggo.MetaKeyID, httpsiggo.MetaTag}}},
+		{name: "Signature-Agent not covered", opts: signingOptions{signatureAgent: `sig1="https://bot.example"`}},
+		{name: "whole Signature-Agent dictionary covered", opts: signingOptions{signatureAgent: `sig1="https://bot.example"`, fields: []httpsiggo.SignedField{authority, legacyAgent}}},
+		{name: "only another label's member covered", opts: signingOptions{signatureAgent: twoAgents, fields: []httpsiggo.SignedField{authority, otherMember}}},
+		{name: "covered member missing from Signature-Agent", opts: signingOptions{signatureAgent: `sig2="https://bot.example"`, fields: []httpsiggo.SignedField{authority, agentMember}}},
+		{name: "Signature-Agent neither Dictionary nor String", opts: signingOptions{signatureAgent: `https://bot.example`, fields: []httpsiggo.SignedField{authority, legacyAgent}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := validator.Validate(signedRequestWith(t, privateKey, keyID, tc.opts))
+			if tc.valid && err != nil {
+				t.Fatalf("validate: %v", err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatal("expected the request to be rejected")
+			}
+		})
+	}
 }
