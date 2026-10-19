@@ -23,6 +23,18 @@ describe("Signature-Agent invalid syntax", () => {
     expect(() => parseSignatureAgentHeader("")).toThrow("must not be empty");
   });
 
+  it.each([
+    ['sig1="http://signature-agent.test"', "directory"],
+    ['sig1="http://signature-agent.test";type=directory', "directory"],
+    ['"http://signature-agent.test"', "directory"],
+    ['sig1="http://signature-agent.test/jwks.json";type=jwks_uri', "jwks_uri"],
+    ['sig1="http://signature-agent.test/card";type=cimd', "cimd"],
+  ])("rejects %s without https", (header, type) => {
+    expect(() => parseSignatureAgentHeader(header)).toThrow(
+      `${type} Signature-Agent must use https`
+    );
+  });
+
   it("accepts legacy string syntax with a warning", () => {
     expect(parseSignatureAgentHeader('"https://signature-agent.test"')).toEqual(
       {

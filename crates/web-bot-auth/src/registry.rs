@@ -200,26 +200,13 @@ fn validate_discovery_uri(
     uri: &str,
     discovery_type: &SignatureAgentDiscoveryType,
 ) -> Result<(), RegistryError> {
-    match discovery_type {
-        SignatureAgentDiscoveryType::Directory => {
-            if valid_uri_with_scheme(uri, "https://") || valid_uri_with_scheme(uri, "http://") {
-                Ok(())
-            } else {
-                Err(RegistryError::Invalid(
-                    "directory Signature-Agent must use http or https".into(),
-                ))
-            }
-        }
-        SignatureAgentDiscoveryType::JwksUri | SignatureAgentDiscoveryType::Cimd => {
-            if valid_uri_with_scheme(uri, "https://") {
-                Ok(())
-            } else {
-                Err(RegistryError::Invalid(format!(
-                    "{} Signature-Agent must use https",
-                    discovery_type_name(discovery_type)
-                )))
-            }
-        }
+    if valid_uri_with_scheme(uri, "https://") {
+        Ok(())
+    } else {
+        Err(RegistryError::Invalid(format!(
+            "{} Signature-Agent must use https",
+            discovery_type_name(discovery_type)
+        )))
     }
 }
 
@@ -546,6 +533,34 @@ mod tests {
     fn rejects_empty_signature_agent() {
         let error = parse_signature_agent_header("").unwrap_err().to_string();
         assert!(error.contains("must not be empty"));
+    }
+
+    #[test]
+    fn rejects_signature_agent_without_https() {
+        for (header, discovery_type) in [
+            ("sig1=\"http://signature-agent.test\"", "directory"),
+            (
+                "sig1=\"http://signature-agent.test\";type=directory",
+                "directory",
+            ),
+            ("\"http://signature-agent.test\"", "directory"),
+            (
+                "sig1=\"http://signature-agent.test/jwks.json\";type=jwks_uri",
+                "jwks_uri",
+            ),
+            (
+                "sig1=\"http://signature-agent.test/card\";type=cimd",
+                "cimd",
+            ),
+        ] {
+            let error = parse_signature_agent_header(header)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("{discovery_type} Signature-Agent must use https")),
+                "{header}: {error}"
+            );
+        }
     }
 
     #[test]
