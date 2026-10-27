@@ -145,14 +145,7 @@ function discoveryType(value: unknown): SignatureAgentDiscoveryType {
 }
 
 function validateDiscoveryURI(uri: string, type: SignatureAgentDiscoveryType) {
-  const url = new URL(uri);
-  if (type === "directory") {
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      return;
-    }
-    throw new Error("directory Signature-Agent must use http or https");
-  }
-  if (url.protocol !== "https:") {
+  if (new URL(uri).protocol !== "https:") {
     throw new Error(`${type} Signature-Agent must use https`);
   }
 }
