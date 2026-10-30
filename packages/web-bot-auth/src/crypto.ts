@@ -24,7 +24,7 @@ function jwkAlgorithm(jwk: JsonWebKey): WebBotAlgorithm {
     }
     return "ed25519";
   }
-  if (jwk.kty === "RSA" && jwk.alg === "PS512") {
+  if (jwk.kty === "RSA" && (jwk.alg === undefined || jwk.alg === "PS512")) {
     return "rsa-pss-sha512";
   }
   throw new Error("JWK must be Ed25519 or RSA-PSS/SHA-512");

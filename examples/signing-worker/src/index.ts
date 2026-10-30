@@ -24,7 +24,7 @@ export default {
     const outgoing = new Request(env.TARGET, request);
     outgoing.headers.set(
       SIGNATURE_AGENT_HEADER,
-      `sig1="${env.SIGNATURE_AGENT}";type=directory`
+      `sig1="${env.SIGNATURE_AGENT}"`
     );
     const now = new Date();
     const fields = await sign(outgoing, {

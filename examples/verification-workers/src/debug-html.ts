@@ -224,7 +224,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
           <label for="signature-agent-header">Signature-Agent</label>
           <div class="field">
             <textarea id="signature-agent-header" name="signature-agent" placeholder='"https://example.com"'></textarea>
-            <p class="text-muted">Accepted forms: <code>&lt;label&gt;="&lt;url&gt;";type=directory</code>, <code>type=jwks_uri</code>, <code>type=cimd</code>, or legacy <code>"&lt;url&gt;"</code>.</p>
+            <p class="text-muted">Accepted forms: <code>&lt;label&gt;="&lt;url&gt;"</code>, <code>&lt;label&gt;="&lt;url&gt;";type=cimd</code>, or legacy <code>"&lt;url&gt;"</code>.</p>
           </div>
 
           <label for="signature-input-header">Signature-Input</label>
@@ -371,7 +371,7 @@ export const generateDebugHTML = (turnstileSiteKey: string) => `<!DOCTYPE html>
         return undefined;
       }
 
-      const match = value.trim().match(/^(?:[a-z*][a-z0-9_.*-]*=)?"([^"]+)"(?:;type=(?:directory|jwks_uri|cimd))?$/);
+      const match = value.trim().match(/^(?:[a-z*][a-z0-9_.*-]*=)?"([^"]+)"(?:;type=cimd)?$/);
       if (!match) {
         return 'Signature-Agent must be "<url>" or <label>="<url>" with optional type';
       }

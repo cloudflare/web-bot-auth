@@ -101,7 +101,7 @@ function validateDirectoryURL(url: string): URL | string {
 	return parsed;
 }
 
-async function readTextWithLimit(
+export async function readTextWithLimit(
 	response: Response,
 	byteLimit: number
 ): Promise<string> {
@@ -110,7 +110,7 @@ async function readTextWithLimit(
 	}
 
 	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
+	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	let bytesRead = 0;
 	let text = "";
 
