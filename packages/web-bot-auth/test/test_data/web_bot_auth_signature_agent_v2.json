@@ -1,0 +1,43 @@
+[
+  {
+    "name": "origin-default",
+    "header": "sig1=\"https://signature-agent.test\"",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test"
+      }
+    ]
+  },
+  {
+    "name": "directory-default",
+    "header": "sig1=\"https://signature-agent.test/.well-known/http-message-signatures-directory\"",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test/.well-known/http-message-signatures-directory"
+      }
+    ]
+  },
+  {
+    "name": "jwks-default",
+    "header": "sig1=\"https://signature-agent.test/jwks.json\"",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test/jwks.json"
+      }
+    ]
+  },
+  {
+    "name": "cimd",
+    "header": "sig1=\"https://signature-agent.test/card\";type=cimd",
+    "entries": [
+      {
+        "label": "sig1",
+        "uri": "https://signature-agent.test/card",
+        "type": "cimd"
+      }
+    ]
+  }
+]

@@ -39,10 +39,11 @@ impl UnsignedMessage for MyThing {
                 CoveredComponent::HTTP(HTTPField {
                     name: "signature-agent".to_string(),
                     parameters: HTTPFieldParametersSet(vec![HTTPFieldParameters::Key(
-                        "agent1".to_string(),
+                        "sig1".to_string(),
                     )]),
                 }),
-                r#"agent1="https://myexample.com""#.to_string(),
+                r#"sig1="https://myexample.com/.well-known/http-message-signatures-directory""#
+                    .to_string(),
             ),
         ])
     }

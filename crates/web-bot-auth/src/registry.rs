@@ -37,10 +37,6 @@ impl core::error::Error for RegistryError {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureAgentDiscoveryType {
-    /// Resolve the well-known HTTP Message Signatures Directory.
-    Directory,
-    /// Resolve the member value as a direct JWK Set URI.
-    JwksUri,
     /// Resolve the member value as a Client ID Metadata Document.
     Cimd,
 }
@@ -52,9 +48,9 @@ pub struct SignatureAgentEntry {
     pub label: String,
     /// Discovery URI.
     pub uri: String,
-    /// Discovery type.
-    #[serde(rename = "type")]
-    pub discovery_type: SignatureAgentDiscoveryType,
+    /// Discovery extension. Absent means a JWK Set URL.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub discovery_type: Option<SignatureAgentDiscoveryType>,
 }
 
 /// Parsed `Signature-Agent` header.
@@ -196,60 +192,14 @@ fn has_any_scheme(uri: &str) -> bool {
     })
 }
 
-fn validate_discovery_uri(
-    uri: &str,
-    discovery_type: &SignatureAgentDiscoveryType,
-) -> Result<(), RegistryError> {
-    match discovery_type {
-        SignatureAgentDiscoveryType::Directory => {
-            if valid_uri_with_scheme(uri, "https://") || valid_uri_with_scheme(uri, "http://") {
-                Ok(())
-            } else {
-                Err(RegistryError::Invalid(
-                    "directory Signature-Agent must use http or https".into(),
-                ))
-            }
-        }
-        SignatureAgentDiscoveryType::JwksUri | SignatureAgentDiscoveryType::Cimd => {
-            if valid_uri_with_scheme(uri, "https://") {
-                Ok(())
-            } else {
-                Err(RegistryError::Invalid(format!(
-                    "{} Signature-Agent must use https",
-                    discovery_type_name(discovery_type)
-                )))
-            }
-        }
+fn validate_discovery_uri(uri: &str) -> Result<(), RegistryError> {
+    let url = url::Url::parse(uri).map_err(|error| RegistryError::Invalid(error.to_string()))?;
+    if url.scheme() != "https" || url.host_str().is_none() {
+        return Err(RegistryError::Invalid(
+            "Signature-Agent must use https".into(),
+        ));
     }
-}
-
-fn discovery_type_name(discovery_type: &SignatureAgentDiscoveryType) -> &'static str {
-    match discovery_type {
-        SignatureAgentDiscoveryType::Directory => "directory",
-        SignatureAgentDiscoveryType::JwksUri => "jwks_uri",
-        SignatureAgentDiscoveryType::Cimd => "cimd",
-    }
-}
-
-fn parse_discovery_type(
-    value: Option<&sfv::BareItem>,
-) -> Result<SignatureAgentDiscoveryType, RegistryError> {
-    match value {
-        None => Ok(SignatureAgentDiscoveryType::Directory),
-        Some(item) => {
-            let token = item.as_token().ok_or_else(|| {
-                RegistryError::Invalid("Signature-Agent type must be a token".into())
-            })?;
-            match token.as_str() {
-                "directory" => Ok(SignatureAgentDiscoveryType::Directory),
-                "jwks_uri" => Ok(SignatureAgentDiscoveryType::JwksUri),
-                "cimd" => Ok(SignatureAgentDiscoveryType::Cimd),
-                other => Err(RegistryError::Invalid(format!(
-                    "unsupported Signature-Agent type {other}"
-                ))),
-            }
-        }
-    }
+    Ok(())
 }
 
 /// Parses a `Signature-Agent` header value.
@@ -259,7 +209,7 @@ fn parse_discovery_type(
 /// # Errors
 ///
 /// Returns an error when both current and legacy parsing fail, or when a member
-/// has an unsupported URI scheme or discovery type.
+/// has an unsupported URI scheme. Members with unknown parameters are ignored.
 pub fn parse_signature_agent_header(header: &str) -> Result<SignatureAgentHeader, RegistryError> {
     match parse_signature_agent_dictionary(header) {
         Ok(entries) => Ok(SignatureAgentHeader::Current { entries }),
@@ -296,8 +246,20 @@ fn parse_signature_agent_dictionary(
             .ok_or_else(|| RegistryError::Invalid("Signature-Agent values must be strings".into()))?
             .as_str()
             .to_string();
-        let discovery_type = parse_discovery_type(item.params.get("type"))?;
-        validate_discovery_uri(&uri, &discovery_type)?;
+        let discovery_type = if item.params.is_empty() {
+            None
+        } else if item.params.len() == 1
+            && item
+                .params
+                .get("type")
+                .and_then(sfv::BareItem::as_token)
+                .is_some_and(|token| token.as_str() == "cimd")
+        {
+            Some(SignatureAgentDiscoveryType::Cimd)
+        } else {
+            continue;
+        };
+        validate_discovery_uri(&uri)?;
         entries.push(SignatureAgentEntry {
             label: label.as_str().to_string(),
             uri,
@@ -317,11 +279,16 @@ fn parse_signature_agent_legacy(header: &str) -> Result<Vec<SignatureAgentEntry>
         .ok_or_else(|| RegistryError::Invalid("legacy Signature-Agent must be a string".into()))?
         .as_str()
         .to_string();
-    validate_discovery_uri(&uri, &SignatureAgentDiscoveryType::Directory)?;
+    if !item.params.is_empty() {
+        return Err(RegistryError::Invalid(
+            "legacy Signature-Agent must not carry parameters".into(),
+        ));
+    }
+    validate_discovery_uri(&uri)?;
     Ok(vec![SignatureAgentEntry {
         label: String::new(),
         uri,
-        discovery_type: SignatureAgentDiscoveryType::Directory,
+        discovery_type: None,
     }])
 }
 
@@ -496,20 +463,6 @@ mod tests {
     use super::*;
 
     #[derive(Debug, Deserialize)]
-    struct SignatureAgentVector {
-        header: String,
-        entries: Vec<SignatureAgentVectorEntry>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct SignatureAgentVectorEntry {
-        label: String,
-        uri: String,
-        #[serde(rename = "type")]
-        discovery_type: SignatureAgentDiscoveryType,
-    }
-
-    #[derive(Debug, Deserialize)]
     struct RegistryVector {
         registry_txt: String,
         signature_agent_cards: Vec<String>,
@@ -523,22 +476,23 @@ mod tests {
         error: Option<String>,
     }
 
+    #[derive(Debug, Deserialize)]
+    struct SignatureAgentVector {
+        header: String,
+        entries: Vec<SignatureAgentEntry>,
+    }
+
     #[test]
     fn parses_signature_agent_vectors() {
         let vectors: Vec<SignatureAgentVector> = serde_json::from_str(include_str!(
-            "../../../packages/web-bot-auth/test/test_data/web_bot_auth_signature_agent_v1.json"
+            "../../../packages/web-bot-auth/test/test_data/web_bot_auth_signature_agent_v2.json"
         ))
         .unwrap();
 
         for vector in vectors {
             let parsed = parse_signature_agent_header(&vector.header).unwrap();
             assert!(matches!(parsed, SignatureAgentHeader::Current { .. }));
-            assert_eq!(parsed.entries().len(), vector.entries.len());
-            for (actual, expected) in parsed.entries().iter().zip(vector.entries.iter()) {
-                assert_eq!(actual.label, expected.label);
-                assert_eq!(actual.uri, expected.uri);
-                assert_eq!(actual.discovery_type, expected.discovery_type);
-            }
+            assert_eq!(parsed.entries(), vector.entries.as_slice());
         }
     }
 
@@ -549,16 +503,22 @@ mod tests {
     }
 
     #[test]
+    fn ignores_removed_discovery_types() {
+        let parsed = parse_signature_agent_header(
+            r#"a="https://example.com";type=directory, b="https://example.com";type=jwks_uri"#,
+        )
+        .unwrap();
+        assert!(parsed.entries().is_empty());
+    }
+
+    #[test]
     fn accepts_legacy_signature_agent() {
         let parsed = parse_signature_agent_header("\"https://signature-agent.test\"").unwrap();
         assert!(matches!(parsed, SignatureAgentHeader::Legacy { .. }));
         assert_eq!(parsed.entries().len(), 1);
         assert_eq!(parsed.entries()[0].label, "");
         assert_eq!(parsed.entries()[0].uri, "https://signature-agent.test");
-        assert_eq!(
-            parsed.entries()[0].discovery_type,
-            SignatureAgentDiscoveryType::Directory
-        );
+        assert_eq!(parsed.entries()[0].discovery_type, None);
     }
 
     #[test]
