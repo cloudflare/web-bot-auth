@@ -76,7 +76,7 @@ const now = new Date("2025-01-01T00:30:00Z");
 const webRequest = new Request("https://example.com/resource", {
   headers: {
     "content-type": "application/json",
-    "signature-agent": 'sig1="https://example.com/agent";type=directory',
+    "signature-agent": 'sig1="https://example.com/agent"',
   },
 });
 const webOptions = {

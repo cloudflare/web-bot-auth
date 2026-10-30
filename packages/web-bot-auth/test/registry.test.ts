@@ -7,7 +7,7 @@ import {
 
 import cardVectors from "./test_data/web_bot_auth_signature_agent_card_v1.json";
 import registryVectors from "./test_data/web_bot_auth_registry_v1.json";
-import signatureAgentVectors from "./test_data/web_bot_auth_signature_agent_v1.json";
+import signatureAgentVectors from "./test_data/web_bot_auth_signature_agent_v2.json";
 
 describe.each(signatureAgentVectors)("Signature-Agent $name", (vector) => {
   it("parses the header", () => {
@@ -19,6 +19,14 @@ describe.each(signatureAgentVectors)("Signature-Agent $name", (vector) => {
 });
 
 describe("Signature-Agent invalid syntax", () => {
+  it("ignores removed discovery types", () => {
+    expect(
+      parseSignatureAgentHeader(
+        'a="https://example.com";type=directory, b="https://example.com";type=jwks_uri'
+      ).entries
+    ).toEqual([]);
+  });
+
   it("rejects an empty header", () => {
     expect(() => parseSignatureAgentHeader("")).toThrow("must not be empty");
   });
@@ -31,7 +39,6 @@ describe("Signature-Agent invalid syntax", () => {
           {
             label: "",
             uri: "https://signature-agent.test",
-            type: "directory",
           },
         ],
       }

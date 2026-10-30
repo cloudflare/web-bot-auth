@@ -23,7 +23,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { sign } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 import worker from "../src/index";
-import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
+import jwk from "../../rfc9421-keys/ed25519.json" with { type: "json" };
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -168,7 +168,7 @@ describe("/debug endpoint", () => {
 		expect(body).toContain("Signature-Agent");
 		expect(body).toContain("Signature-Input");
 		expect(body).toContain("Accepted forms:");
-		expect(body).toContain('&lt;label&gt;="&lt;url&gt;";type=directory');
+		expect(body).toContain('&lt;label&gt;="&lt;url&gt;";type=cimd');
 		expect(body).toContain('parts.join("\\n")');
 		expect(body).toContain('warnings.push("signature has expired")');
 		expect(body).toContain(
@@ -195,11 +195,88 @@ describe("/.well-known/http-message-signatures-directory endpoint", () => {
 });
 
 describe("/v0/api/verify endpoint", () => {
-	it("selects a key by thumbprint when kid differs", async () => {
+	it.each(["origin", "legacy", "directory", "cimd", "invalid proof"])(
+		"validates %s discovery",
+		async (kind) => {
+			const uri = `${signatureAgentOrigin}/.well-known/http-message-signatures-directory`;
+			const directory = await worker.fetch(
+				new IncomingRequest(uri),
+				env,
+				createExecutionContext()
+			);
+			if (kind === "invalid proof") directory.headers.delete("Signature");
+			const fetch = vi.fn(async () => directory.clone());
+			if (kind === "cimd")
+				fetch.mockResolvedValueOnce(
+					Response.json({ client_id: signatureAgentOrigin, jwks_uri: uri })
+				);
+			vi.stubGlobal("fetch", fetch);
+			const agent =
+				kind === "legacy"
+					? `"${signatureAgentOrigin}"`
+					: `sig1="${kind === "directory" ? uri : signatureAgentOrigin}"${kind === "cimd" ? ";type=cimd" : ""}`;
+			const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
+				headers: { "Signature-Agent": agent },
+			});
+			const fields = await sign(request, {
+				expires: new Date(Date.now() + 300_000),
+				signer: await signerFromJWK(jwk),
+			});
+			request.headers.set("Signature", fields.signature);
+			request.headers.set("Signature-Input", fields.signatureInput);
+			const response = await worker.fetch(
+				request,
+				env,
+				createExecutionContext()
+			);
+			expect((await response.text()).split(":")[0]).toBe(
+				kind === "invalid proof" ? "invalid" : "valid"
+			);
+			expect(fetch).toHaveBeenCalledTimes(kind === "cimd" ? 2 : 1);
+			expect(fetch).toHaveBeenLastCalledWith(
+				uri,
+				expect.objectContaining({ redirect: "manual" })
+			);
+		}
+	);
+
+	it.each([
+		[signatureAgentOrigin, 404, "valid", 2],
+		[signatureAgentOrigin, 200, "invalid", 1],
+		[signatureAgentOrigin, 503, "invalid", 1],
+		[`${signatureAgentOrigin}/jwks.json`, 200, "valid", 1],
+	])("resolves %s with HTTP %s", async (uri, status, expected, calls) => {
 		const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
 			headers: {
-				"Signature-Agent": 'sig1="https://keys.example";type=directory',
+				"Signature-Agent": `sig1="${uri}"`,
 			},
+		});
+		const fields = await sign(request, {
+			expires: new Date(Date.now() + 300_000),
+			signer: await signerFromJWK(jwk),
+		});
+		request.headers.set("Signature", fields.signature);
+		request.headers.set("Signature-Input", fields.signatureInput);
+		const keys = { keys: [{ ...jwk, d: undefined, kid: "other" }] };
+		const fetch = vi
+			.fn(async () => Response.json(keys))
+			.mockResolvedValueOnce(Response.json(keys, { status }));
+		vi.stubGlobal("fetch", fetch);
+
+		const response = await worker.fetch(request, env, createExecutionContext());
+		expect((await response.text()).split(":")[0]).toBe(expected);
+		expect(fetch).toHaveBeenCalledTimes(calls);
+		if (calls === 2)
+			expect(fetch).toHaveBeenLastCalledWith(
+				uri,
+				expect.objectContaining({ redirect: "manual" })
+			);
+	});
+
+	it("rejects a well-known JWK whose kid is not its thumbprint", async () => {
+		const uri = `${signatureAgentOrigin}/.well-known/http-message-signatures-directory`;
+		const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
+			headers: { "Signature-Agent": `sig1="${uri}"` },
 		});
 		const fields = await sign(request, {
 			expires: new Date(Date.now() + 300_000),
@@ -209,15 +286,23 @@ describe("/v0/api/verify endpoint", () => {
 		request.headers.set("Signature-Input", fields.signatureInput);
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(() =>
-				Promise.resolve(
-					Response.json({ keys: [{ ...jwk, d: undefined, kid: "other" }] })
+			vi.fn(async () =>
+				Response.json(
+					{ keys: [{ ...jwk, d: undefined, kid: "other" }] },
+					{
+						headers: {
+							"content-type":
+								"application/http-message-signatures-directory+json",
+						},
+					}
 				)
 			)
 		);
 
 		const response = await worker.fetch(request, env, createExecutionContext());
-		expect(await response.text()).toBe("valid");
+		expect(await response.text()).toContain(
+			"well-known JWK kid must match its thumbprint"
+		);
 	});
 });
 
