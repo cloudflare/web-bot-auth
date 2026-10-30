@@ -347,12 +347,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data-url"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
-
-[[package]]
 name = "defmt"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -688,6 +682,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sfv",
+ "sha2",
  "web-bot-auth",
 ]
 
@@ -2133,7 +2128,6 @@ name = "web-bot-auth"
 version = "0.7.0"
 dependencies = [
  "base64 0.23.1",
- "data-url",
  "ed25519-dalek",
  "indexmap",
  "regex",
@@ -2142,6 +2136,7 @@ dependencies = [
  "sfv",
  "sha2",
  "time",
+ "url",
 ]
 
 [[package]]
