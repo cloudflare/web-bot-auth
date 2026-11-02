@@ -8,7 +8,9 @@ use sfv::FieldType;
 use time::UtcDateTime;
 
 use super::ImplementationError;
-use crate::components::{self, CoveredComponent, HTTPField};
+use crate::components::{
+    self, CoveredComponent, HTTPField, HTTPFieldParameters, HTTPFieldParametersSet,
+};
 use crate::keyring::{Algorithm, KeyRing, PreparedKey};
 
 static OBSOLETE_LINE_FOLDING: LazyLock<Regex> =
@@ -263,6 +265,117 @@ pub trait SignedMessage {
     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String>;
 }
 
+/// A [`SignedMessage`] adapter that resolves the `key` parameter of HTTP field
+/// components, as defined in [RFC 9421 Section 2.1.2](https://www.rfc-editor.org/rfc/rfc9421#section-2.1.2).
+///
+/// The wrapped message only needs to return raw field values. For a component
+/// such as `"signature";key="sig1"`, the adapter looks up `signature` without
+/// `key`, combines its field lines, parses them as a Dictionary structured field,
+/// and returns the strict serialization of member `sig1`, with its parameters.
+/// This lets a second signature cover the first one, as in RFC 9421 Section 4.3.
+/// Components without `key` pass through unchanged.
+///
+/// A keyed lookup returns no value, and so fails signature base generation, when
+/// the field is absent or not a valid Dictionary, the Dictionary repeats a key,
+/// the member is absent, or the component also has the `bs` parameter.
+///
+/// ```
+/// use web_bot_auth::components::{CoveredComponent, HTTPField, HTTPFieldParameters, HTTPFieldParametersSet};
+/// use web_bot_auth::message_signatures::{DictionaryMembers, SignedMessage};
+///
+/// struct Headers;
+///
+/// impl SignedMessage for Headers {
+///     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+///         match name {
+///             CoveredComponent::HTTP(HTTPField { name, parameters })
+///                 if name == "example-dict" && parameters.0.is_empty() =>
+///             {
+///                 vec!["a=1, b=2;x=1;y=2, c=(a   b    c), d".to_string()]
+///             }
+///             _ => vec![],
+///         }
+///     }
+/// }
+///
+/// let member = CoveredComponent::HTTP(HTTPField {
+///     name: "example-dict".to_string(),
+///     parameters: HTTPFieldParametersSet(vec![HTTPFieldParameters::Key("c".to_string())]),
+/// });
+/// assert_eq!(DictionaryMembers(&Headers).lookup_component(&member), vec!["(a b c)"]);
+/// ```
+#[derive(Clone, Copy, Debug)]
+pub struct DictionaryMembers<'a, M: ?Sized>(pub &'a M);
+
+impl<M: SignedMessage + ?Sized> SignedMessage for DictionaryMembers<'_, M> {
+    fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+        let CoveredComponent::HTTP(field) = name else {
+            return self.0.lookup_component(name);
+        };
+        let mut keys = field
+            .parameters
+            .0
+            .iter()
+            .filter_map(|parameter| match parameter {
+                HTTPFieldParameters::Key(key) => Some(key.as_str()),
+                _ => None,
+            });
+        let Some(key) = keys.next() else {
+            return self.0.lookup_component(name);
+        };
+        // RFC 9421 Section 2.1: `bs` is incompatible with `key`, and `sf` is
+        // redundant because a member value is always strictly serialized.
+        if keys.next().is_some()
+            || field
+                .parameters
+                .0
+                .iter()
+                .any(|parameter| matches!(parameter, HTTPFieldParameters::Bs))
+        {
+            return vec![];
+        }
+        let unkeyed = CoveredComponent::HTTP(HTTPField {
+            name: field.name.clone(),
+            parameters: HTTPFieldParametersSet(
+                field
+                    .parameters
+                    .0
+                    .iter()
+                    .filter(|parameter| {
+                        !matches!(
+                            parameter,
+                            HTTPFieldParameters::Key(_) | HTTPFieldParameters::Sf
+                        )
+                    })
+                    .cloned()
+                    .collect(),
+            ),
+        });
+        let lines = self.0.lookup_component(&unkeyed);
+        if lines.is_empty() {
+            return vec![];
+        }
+        let combined = lines
+            .iter()
+            .map(|line| line.trim_ascii())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let Ok((mut dictionary, entries)) = sfv::Parser::new(&combined)
+            .parse_dictionary_with_visitor(CountingDictionary::default())
+        else {
+            return vec![];
+        };
+        if dictionary.len() != entries {
+            return vec![];
+        }
+        dictionary
+            .shift_remove(key)
+            .and_then(|member| vec![member].serialize())
+            .into_iter()
+            .collect()
+    }
+}
+
 /// Trait that messages seeking signing should implement to generate `Signature-Input`
 /// and `Signature` header contents.
 pub trait UnsignedMessage {
@@ -504,7 +617,7 @@ impl<'de> sfv::visitor::DictionaryVisitor<'de> for CountingDictionary {
 
 /// Parses and merges every value of the `Signature-Input` or `Signature` field.
 /// RFC 9421 Sections 4.1 and 4.2: labels are unique across all field values.
-fn parse_signature_dictionary(
+pub(crate) fn parse_signature_dictionary(
     message: &impl SignedMessage,
     field: &str,
 ) -> Result<sfv::Dictionary, ImplementationError> {
@@ -1034,5 +1147,194 @@ mod tests {
             base,
             "\"@path\": /%7Esmith\n\"@query\": ?baz=bat%7Eman\n\"@signature-params\": (\"@path\" \"@query\")"
         );
+    }
+
+    /// Returns raw field lines only for unparameterized or `req`/`tr` lookups, so
+    /// tests prove that `DictionaryMembers` resolves `key` itself.
+    struct RawFields(Vec<(String, String)>);
+
+    fn raw(fields: &[(&str, &str)]) -> RawFields {
+        RawFields(
+            fields
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect(),
+        )
+    }
+
+    impl SignedMessage for RawFields {
+        fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+            match name {
+                CoveredComponent::HTTP(HTTPField { name, parameters })
+                    if parameters.0.iter().all(|parameter| {
+                        matches!(
+                            parameter,
+                            HTTPFieldParameters::Req | HTTPFieldParameters::Tr
+                        )
+                    }) =>
+                {
+                    self.0
+                        .iter()
+                        .filter(|(field, _)| field == name)
+                        .map(|(_, value)| value.clone())
+                        .collect()
+                }
+                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                    vec!["example.com".to_string()]
+                }
+                _ => vec![],
+            }
+        }
+    }
+
+    fn field(name: &str, parameters: Vec<HTTPFieldParameters>) -> CoveredComponent {
+        CoveredComponent::HTTP(HTTPField {
+            name: name.to_string(),
+            parameters: HTTPFieldParametersSet(parameters),
+        })
+    }
+
+    fn key(key: &str) -> HTTPFieldParameters {
+        HTTPFieldParameters::Key(key.to_string())
+    }
+
+    #[test]
+    fn dictionary_members_match_rfc_9421_examples() {
+        // RFC 9421 Section 2.1.2.
+        let message = raw(&[("example-dict", " a=1, b=2;x=1;y=2, c=(a   b    c), d")]);
+        let members = DictionaryMembers(&message);
+        for (member, expected) in [
+            ("a", "1"),
+            ("d", "?1"),
+            ("b", "2;x=1;y=2"),
+            ("c", "(a b c)"),
+        ] {
+            assert_eq!(
+                members.lookup_component(&field("example-dict", vec![key(member)])),
+                vec![expected],
+                "member {member}"
+            );
+        }
+        // RFC 9421 Section 3.2.1: an absent member is an error.
+        assert!(
+            members
+                .lookup_component(&field("example-dict", vec![key("e")]))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn dictionary_members_combine_field_lines() {
+        let message = raw(&[("example-dict", "a=1"), ("example-dict", " b=2 ")]);
+        let members = DictionaryMembers(&message);
+        assert_eq!(
+            members.lookup_component(&field("example-dict", vec![key("b")])),
+            vec!["2"]
+        );
+    }
+
+    #[test]
+    fn dictionary_members_pass_other_components_through() {
+        let message = raw(&[("example-dict", "a=1, b=2")]);
+        let members = DictionaryMembers(&message);
+        assert_eq!(
+            members.lookup_component(&field("example-dict", vec![])),
+            vec!["a=1, b=2"]
+        );
+        assert_eq!(
+            members.lookup_component(&CoveredComponent::Derived(DerivedComponent::Authority {
+                req: false
+            })),
+            vec!["example.com"]
+        );
+        // `req` reaches the wrapped message, and `sf` is redundant with `key`.
+        assert_eq!(
+            members.lookup_component(&field(
+                "example-dict",
+                vec![HTTPFieldParameters::Req, HTTPFieldParameters::Sf, key("a")]
+            )),
+            vec!["1"]
+        );
+    }
+
+    #[test]
+    fn dictionary_members_fail_closed() {
+        let message = raw(&[
+            ("duplicated", "a=1"),
+            ("duplicated", "a=2"),
+            ("not-a-dictionary", "(a b"),
+            ("example-dict", "a=1"),
+        ]);
+        let members = DictionaryMembers(&message);
+        for component in [
+            field("absent", vec![key("a")]),
+            field("duplicated", vec![key("a")]),
+            field("not-a-dictionary", vec![key("a")]),
+            field("example-dict", vec![HTTPFieldParameters::Bs, key("a")]),
+            field("example-dict", vec![key("a"), key("a")]),
+        ] {
+            assert!(
+                members.lookup_component(&component).is_empty(),
+                "{component:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_second_signature_covers_the_first_signature_member() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        // RFC 9421 Section 4.3: `proxy` covers the `sig1` member of `Signature`.
+        let signing_key = SigningKey::from_bytes(&[7; 32]);
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            "proxy-key".to_string(),
+            Algorithm::Ed25519,
+            signing_key.verifying_key().to_bytes().to_vec(),
+        );
+        let signature_params =
+            r#"("@authority" "signature";key="sig1");created=1;keyid="proxy-key""#;
+        let base = format!(
+            "\"@authority\": example.com\n\"signature\";key=\"sig1\": :AAAA:\n\"@signature-params\": {signature_params}"
+        );
+        let proxy_signature = sfv::Item::new(sfv::BareItem::ByteSequence(
+            signing_key.sign(base.as_bytes()).to_bytes().to_vec(),
+        ))
+        .serialize();
+        let signature_input =
+            format!(r#"sig1=("@authority");keyid="other", proxy={signature_params}"#);
+        let signature = format!("sig1=:AAAA:, proxy={proxy_signature}");
+        let message = raw(&[
+            ("signature-input", &signature_input),
+            ("signature", &signature),
+        ]);
+
+        MessageVerifier::parse(&DictionaryMembers(&message), |(label, _)| {
+            label.as_str() == "proxy"
+        })
+        .unwrap()
+        .verify(&keyring, None)
+        .unwrap();
+
+        // Without the adapter, the keyed member cannot be found.
+        assert!(matches!(
+            MessageVerifier::parse(&message, |(label, _)| label.as_str() == "proxy"),
+            Err(ImplementationError::LookupError(_))
+        ));
+
+        // A changed `sig1` member breaks the `proxy` signature.
+        let tampered = format!("sig1=:AAAB:, proxy={proxy_signature}");
+        let message = raw(&[
+            ("signature-input", &signature_input),
+            ("signature", &tampered),
+        ]);
+        assert!(matches!(
+            MessageVerifier::parse(&DictionaryMembers(&message), |(label, _)| {
+                label.as_str() == "proxy"
+            })
+            .unwrap()
+            .verify(&keyring, None),
+            Err(ImplementationError::FailedToVerify(_))
+        ));
     }
 }

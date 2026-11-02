@@ -34,6 +34,7 @@ use components::{CoveredComponent, HTTPField, HTTPFieldParameters};
 use keyring::{Algorithm, JSONWebKeySet, KeyRing};
 use message_signatures::{
     MessageVerifier, ParsedLabel, SecurityAdvisory, SignatureTiming, SignedMessage,
+    parse_signature_dictionary,
 };
 use registry::{SignatureAgentDiscoveryType, parse_signature_agent_header};
 
@@ -186,46 +187,108 @@ pub enum SignatureAgentLink {
     LegacyDirectory(String),
 }
 
+/// Whether a `Signature-Input` member meets the Web Bot Auth requirements: it has
+/// `keyid`, `tag="web-bot-auth"`, `created` and `expires`, covers `@authority`
+/// or `@target-uri`, and covers `signature-agent` when the message has that header.
+fn is_web_bot_auth_label(innerlist: &sfv::InnerList, signature_agent_present: bool) -> bool {
+    innerlist.params.contains_key("keyid")
+        && innerlist.params.contains_key("tag")
+        && innerlist.params.contains_key("expires")
+        && innerlist.params.contains_key("created")
+        && innerlist
+            .params
+            .get("tag")
+            .and_then(|tag| tag.as_string())
+            .is_some_and(|tag| tag.as_str() == "web-bot-auth")
+        && (innerlist
+            .items
+            .iter()
+            .any(|item| *item == sfv::Item::new(sfv::StringRef::constant("@authority")))
+            || innerlist
+                .items
+                .iter()
+                .any(|item| *item == sfv::Item::new(sfv::StringRef::constant("@target-uri"))))
+        && (!signature_agent_present
+            || innerlist.items.iter().any(|item| {
+                item.bare_item
+                    .as_string()
+                    .is_some_and(|i| i == sfv::StringRef::constant("signature-agent"))
+            }))
+}
+
+fn lookup_signature_agents(message: &impl SignedMessage) -> Vec<String> {
+    message.lookup_component(&CoveredComponent::HTTP(HTTPField {
+        name: "signature-agent".to_string(),
+        parameters: components::HTTPFieldParametersSet(vec![]),
+    }))
+}
+
 impl WebBotAuthVerifier {
     /// Parse a message into a structure that is ready for verification against an
     /// external key with a suitable algorithm. If `alg` is not set, a default will
     /// be chosen from the `alg` parameter.
     ///
+    /// This selects the first label returned by [`Self::labels`]. Use
+    /// [`Self::parse_label`] to select another one.
+    ///
     /// # Errors
     ///
     /// Returns `ImplementationErrors` relevant to verifying and parsing.
     pub fn parse(message: &impl SignedMessage) -> Result<Self, ImplementationError> {
-        let signature_agents = message.lookup_component(&CoveredComponent::HTTP(HTTPField {
-            name: "signature-agent".to_string(),
-            parameters: components::HTTPFieldParametersSet(vec![]),
-        }));
+        Self::parse_matching(message, |_| true)
+    }
 
-        let message_verifier =
-            MessageVerifier::parse(message, |(_, innerlist)| {
-                innerlist.params.contains_key("keyid")
-                    && innerlist.params.contains_key("tag")
-                    && innerlist.params.contains_key("expires")
-                    && innerlist.params.contains_key("created")
-                    && innerlist
-                        .params
-                        .get("tag")
-                        .and_then(|tag| tag.as_string())
-                        .is_some_and(|tag| tag.as_str() == "web-bot-auth")
-                    && (innerlist.items.iter().any(|item| {
-                        *item == sfv::Item::new(sfv::StringRef::constant("@authority"))
-                    }) || innerlist.items.iter().any(|item| {
-                        *item == sfv::Item::new(sfv::StringRef::constant("@target-uri"))
-                    }))
-                    && (if !signature_agents.is_empty() {
-                        innerlist.items.iter().any(|item| {
-                            item.bare_item
-                                .as_string()
-                                .is_some_and(|i| i == sfv::StringRef::constant("signature-agent"))
-                        })
-                    } else {
-                        true
-                    })
-            })?;
+    /// Parse a message like [`Self::parse`], but select the Web Bot Auth signature
+    /// with label `label`. Use this with [`Self::labels`] to verify each Web Bot
+    /// Auth signature of a message in turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ImplementationErrors` relevant to verifying and parsing. In
+    /// particular, this fails when `label` is absent or is not a Web Bot Auth label.
+    pub fn parse_label(
+        message: &impl SignedMessage,
+        label: &str,
+    ) -> Result<Self, ImplementationError> {
+        Self::parse_matching(message, |candidate| candidate.as_str() == label)
+    }
+
+    /// List every label of `Signature-Input` that meets the Web Bot Auth
+    /// requirements, in message order. [`Self::parse`] selects the first one.
+    ///
+    /// This inspects `Signature-Input` and `Signature-Agent` only. A listed
+    /// label can still fail [`Self::parse_label`], for example when `Signature`
+    /// has no member for it or a covered component is absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ImplementationError::ParsingError`] when no `Signature-Input`
+    /// field value is a valid Dictionary, or a label occurs more than once.
+    pub fn labels(message: &impl SignedMessage) -> Result<Vec<sfv::Key>, ImplementationError> {
+        let signature_agent_present = !lookup_signature_agents(message).is_empty();
+        Ok(parse_signature_dictionary(message, "Signature-Input")?
+            .into_iter()
+            .filter_map(|(label, entry)| match entry {
+                sfv::ListEntry::InnerList(innerlist)
+                    if is_web_bot_auth_label(&innerlist, signature_agent_present) =>
+                {
+                    Some(label)
+                }
+                _ => None,
+            })
+            .collect())
+    }
+
+    fn parse_matching(
+        message: &impl SignedMessage,
+        select: impl Fn(&sfv::Key) -> bool,
+    ) -> Result<Self, ImplementationError> {
+        let signature_agents = lookup_signature_agents(message);
+        let signature_agent_present = !signature_agents.is_empty();
+
+        let message_verifier = MessageVerifier::parse(message, |(label, innerlist)| {
+            select(label) && is_web_bot_auth_label(innerlist, signature_agent_present)
+        })?;
 
         let mut signature_agent_key: Option<String> = None;
         'outer_loop: for (component, _) in message_verifier.parsed.base.components.iter() {
@@ -931,5 +994,268 @@ mod tests {
             verifier.get_signature_agents()[0],
             SignatureAgentLink::Directory("https://myexample.com".to_string())
         );
+    }
+
+    const TEST_KEY_ID: &str = "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";
+
+    const TEST_PUBLIC_KEY: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+        0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58, 0x2b,
+        0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd, 0xce, 0x43,
+        0xd1, 0xbb,
+    ];
+
+    const TEST_PRIVATE_KEY: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
+        0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c, 0x0e,
+        0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f, 0x6a, 0x7d,
+        0x29, 0xc5,
+    ];
+
+    /// Returns raw field lines for unparameterized lookups only.
+    struct Headers(Vec<(String, String)>);
+
+    impl Headers {
+        fn new(fields: &[(&str, &str)]) -> Self {
+            Self(
+                fields
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
+            )
+        }
+    }
+
+    impl SignedMessage for Headers {
+        fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+            match name {
+                CoveredComponent::HTTP(HTTPField { name, parameters })
+                    if parameters.0.is_empty() =>
+                {
+                    self.0
+                        .iter()
+                        .filter(|(field, _)| field == name)
+                        .map(|(_, value)| value.clone())
+                        .collect()
+                }
+                CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                    vec!["example.com".to_string()]
+                }
+                _ => vec![],
+            }
+        }
+    }
+
+    /// Signs `components` and returns `Signature-Input` and `Signature` members for `label`.
+    fn sign(label: &str, keyid: &str, components: &[(CoveredComponent, &str)]) -> (String, String) {
+        struct Unsigned {
+            components: IndexMap<CoveredComponent, String>,
+            headers: (String, String),
+        }
+
+        impl message_signatures::UnsignedMessage for Unsigned {
+            fn fetch_components_to_cover(&self) -> IndexMap<CoveredComponent, String> {
+                self.components.clone()
+            }
+
+            fn register_header_contents(
+                &mut self,
+                signature_input: String,
+                signature_header: String,
+            ) {
+                self.headers = (signature_input, signature_header);
+            }
+        }
+
+        let mut unsigned = Unsigned {
+            components: components
+                .iter()
+                .map(|(component, value)| (component.clone(), value.to_string()))
+                .collect(),
+            headers: Default::default(),
+        };
+        message_signatures::MessageSigner {
+            keyid: keyid.into(),
+            nonce: format!("nonce-{label}"),
+            tag: "web-bot-auth".into(),
+        }
+        .generate_signature_headers_content(
+            &mut unsigned,
+            Duration::from_secs(60),
+            Algorithm::Ed25519,
+            &TEST_PRIVATE_KEY,
+        )
+        .unwrap();
+        let (signature_input, signature) = unsigned.headers;
+        (
+            format!("{label}={signature_input}"),
+            format!("{label}={signature}"),
+        )
+    }
+
+    fn authority() -> CoveredComponent {
+        CoveredComponent::Derived(DerivedComponent::Authority { req: false })
+    }
+
+    fn signature_agent(key: &str) -> CoveredComponent {
+        CoveredComponent::HTTP(HTTPField {
+            name: "signature-agent".to_string(),
+            parameters: components::HTTPFieldParametersSet(vec![HTTPFieldParameters::Key(
+                key.to_string(),
+            )]),
+        })
+    }
+
+    fn test_keyring() -> KeyRing {
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            TEST_KEY_ID.to_string(),
+            Algorithm::Ed25519,
+            TEST_PUBLIC_KEY.to_vec(),
+        );
+        keyring
+    }
+
+    fn labels_of(message: &impl SignedMessage) -> Vec<String> {
+        WebBotAuthVerifier::labels(message)
+            .unwrap()
+            .into_iter()
+            .map(|label| label.as_str().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn test_labels_lists_web_bot_auth_labels_in_order() {
+        let message = Headers::new(&[
+            (
+                "signature-input",
+                r#"sig2=("@authority");created=1;expires=2;keyid="k";tag="web-bot-auth", other=("@authority");created=1;expires=2;keyid="k", item=1"#,
+            ),
+            (
+                "signature-input",
+                r#"sig1=("@target-uri");created=1;expires=2;keyid="k";tag="web-bot-auth", path=("@path");created=1;expires=2;keyid="k";tag="web-bot-auth""#,
+            ),
+        ]);
+        assert_eq!(labels_of(&message), vec!["sig2", "sig1"]);
+    }
+
+    #[test]
+    fn test_labels_require_signature_agent_coverage_when_present() {
+        let message = Headers::new(&[
+            (
+                "signature-input",
+                r#"sig1=("@authority");created=1;expires=2;keyid="k";tag="web-bot-auth", sig2=("@authority" "signature-agent";key="sig2");created=1;expires=2;keyid="k";tag="web-bot-auth""#,
+            ),
+            ("signature-agent", r#"sig2="https://example.com""#),
+        ]);
+        assert_eq!(labels_of(&message), vec!["sig2"]);
+    }
+
+    #[test]
+    fn test_labels_reject_invalid_signature_input() {
+        let duplicated = Headers::new(&[
+            (
+                "signature-input",
+                r#"sig1=("@authority");created=1;expires=2;keyid="k";tag="web-bot-auth""#,
+            ),
+            (
+                "signature-input",
+                r#"sig1=("@authority");created=3;expires=4;keyid="k";tag="web-bot-auth""#,
+            ),
+        ]);
+        assert!(matches!(
+            WebBotAuthVerifier::labels(&duplicated),
+            Err(ImplementationError::ParsingError(_))
+        ));
+        assert!(matches!(
+            WebBotAuthVerifier::labels(&Headers::new(&[])),
+            Err(ImplementationError::ParsingError(_))
+        ));
+    }
+
+    #[test]
+    fn test_parse_label_verifies_each_label() {
+        // `sig1` names a key that the keyring does not hold; `sig2` verifies.
+        let (input1, signature1) = sign("sig1", "unknown", &[(authority(), "example.com")]);
+        let (input2, signature2) = sign("sig2", TEST_KEY_ID, &[(authority(), "example.com")]);
+        let message = Headers::new(&[
+            ("signature-input", &format!("{input1}, {input2}")),
+            ("signature", &signature1),
+            ("signature", &signature2),
+        ]);
+        let keyring = test_keyring();
+
+        assert_eq!(labels_of(&message), vec!["sig1", "sig2"]);
+        let first = WebBotAuthVerifier::parse(&message).unwrap();
+        assert_eq!(first.get_parsed_label().label.as_str(), "sig1");
+        assert!(matches!(
+            first.verify(&keyring, None),
+            Err(ImplementationError::NoSuchKey)
+        ));
+
+        let second = WebBotAuthVerifier::parse_label(&message, "sig2").unwrap();
+        assert_eq!(second.get_parsed_label().label.as_str(), "sig2");
+        second.verify(&keyring, None).unwrap();
+    }
+
+    #[test]
+    fn test_parse_label_rejects_other_labels() {
+        let (input, signature) = sign("sig1", TEST_KEY_ID, &[(authority(), "example.com")]);
+        let message = Headers::new(&[
+            (
+                "signature-input",
+                &format!(r#"{input}, other=("@authority");created=1;expires=2;keyid="k""#),
+            ),
+            ("signature", &format!("{signature}, other=:AAAA:")),
+        ]);
+        for label in ["other", "absent"] {
+            assert!(matches!(
+                WebBotAuthVerifier::parse_label(&message, label),
+                Err(ImplementationError::ParsingError(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn test_parse_label_resolves_its_signature_agent_member() {
+        let signature_agents = r#"sig1="https://one.example", sig2="https://two.example""#;
+        let (input1, signature1) = sign(
+            "sig1",
+            TEST_KEY_ID,
+            &[
+                (authority(), "example.com"),
+                (signature_agent("sig1"), r#""https://one.example""#),
+            ],
+        );
+        let (input2, signature2) = sign(
+            "sig2",
+            TEST_KEY_ID,
+            &[
+                (authority(), "example.com"),
+                (signature_agent("sig2"), r#""https://two.example""#),
+            ],
+        );
+        let headers = Headers::new(&[
+            ("signature-input", &format!("{input1}, {input2}")),
+            ("signature", &format!("{signature1}, {signature2}")),
+            ("signature-agent", signature_agents),
+        ]);
+        // `Headers` cannot resolve `key`; `DictionaryMembers` adds that.
+        assert!(matches!(
+            WebBotAuthVerifier::parse_label(&headers, "sig2"),
+            Err(ImplementationError::LookupError(_))
+        ));
+        let message = message_signatures::DictionaryMembers(&headers);
+        let keyring = test_keyring();
+
+        for (label, directory) in [
+            ("sig1", "https://one.example"),
+            ("sig2", "https://two.example"),
+        ] {
+            let verifier = WebBotAuthVerifier::parse_label(&message, label).unwrap();
+            assert_eq!(
+                verifier.get_signature_agents(),
+                &vec![SignatureAgentLink::Directory(directory.to_string())]
+            );
+            verifier.verify(&keyring, None).unwrap();
+        }
     }
 }
