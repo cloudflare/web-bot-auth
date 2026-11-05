@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	sfv "github.com/dunglas/httpsfv"
@@ -128,6 +129,12 @@ func webBotAuthLabels(r *http.Request) ([]signatureCandidate, error) {
 // coversSignatureAgent reports whether a signature covers the Signature-Agent member
 // keyed to its label, as Section 5.2.1 requires when the header is present. The legacy
 // String form is a single member keyed to the label, so it is covered without a key.
+//
+// httpsig-go v1.2.2 ignores the key parameter and computes the signature base over the
+// whole Signature-Agent field, so a signature that covers a Dictionary member fails
+// verification. Until a release includes remitly-oss/httpsig-go#39, only requests that
+// omit Signature-Agent or send its legacy String form can pass this check and
+// verification together.
 func coversSignatureAgent(r *http.Request, label string, components sfv.InnerList) bool {
 	header := r.Header.Values("Signature-Agent")
 	if len(header) == 0 {
@@ -150,11 +157,24 @@ func coversSignatureAgent(r *http.Request, label string, components sfv.InnerLis
 	})
 }
 
+// combineSignatureFieldLines puts each of Signature-Input and Signature on one field line.
+// httpsig-go v1.2.2 reads only the first line of each (remitly-oss/httpsig-go#18), so it
+// can't find a signature whose members arrive on a later line. RFC 9110 Section 5.3 lets
+// a recipient combine field lines with commas without changing their meaning.
+func combineSignatureFieldLines(header http.Header) {
+	for _, name := range []string{"Signature-Input", "Signature"} {
+		if values := header.Values(name); len(values) > 1 {
+			header.Set(name, strings.Join(values, ", "))
+		}
+	}
+}
+
 func (v *SignatureValidator) Validate(r *http.Request) (string, error) {
 	labels, err := webBotAuthLabels(r)
 	if err != nil {
 		return "", err
 	}
+	combineSignatureFieldLines(r.Header)
 	var lastErr error
 	for _, candidate := range labels {
 		label := candidate.label
