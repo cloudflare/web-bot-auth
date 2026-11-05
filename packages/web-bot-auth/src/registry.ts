@@ -138,6 +138,12 @@ function validateDiscoveryURI(uri: string) {
   if (url.protocol !== "https:") {
     throw new Error("Signature-Agent must use https");
   }
+  // RFC 9110 Section 4.2.2 requires rejecting an https URI with an empty host.
+  // The URL parser takes a host from "https:///x", "https:x", and "https:\x",
+  // so check the value as sent.
+  if (!/^https:\/\/[^/\\]/i.test(uri)) {
+    throw new Error("Signature-Agent must name a host");
+  }
 }
 
 export function parseSignatureAgentHeader(

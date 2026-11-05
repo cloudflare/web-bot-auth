@@ -31,6 +31,42 @@ describe("Signature-Agent invalid syntax", () => {
     expect(() => parseSignatureAgentHeader("")).toThrow("must not be empty");
   });
 
+  it.each([
+    'sig1="http://signature-agent.test"',
+    'sig1="http://signature-agent.test/card";type=cimd',
+    'sig1="https://a.test", sig2="http://signature-agent.test"',
+    '"http://signature-agent.test"',
+  ])("rejects a member without https %s", (header) => {
+    expect(() => parseSignatureAgentHeader(header)).toThrow(
+      "Signature-Agent must use https"
+    );
+  });
+
+  it.each([
+    'sig1="https:///signature-agent.test"',
+    'sig1="https:signature-agent.test"',
+    'sig1="https:\\\\signature-agent.test"',
+    '"https:///signature-agent.test"',
+  ])("rejects an https member with an empty host %s", (header) => {
+    expect(() => parseSignatureAgentHeader(header)).toThrow(
+      "Signature-Agent must name a host"
+    );
+  });
+
+  it("accepts an https scheme in any case", () => {
+    expect(
+      parseSignatureAgentHeader('sig1="HTTPS://signature-agent.test"').entries
+    ).toEqual([{ label: "sig1", uri: "HTTPS://signature-agent.test" }]);
+  });
+
+  it("ignores an http member that carries parameters", () => {
+    expect(
+      parseSignatureAgentHeader(
+        'sig1="http://signature-agent.test";type=directory'
+      ).entries
+    ).toEqual([]);
+  });
+
   it("accepts legacy string syntax with a warning", () => {
     expect(parseSignatureAgentHeader('"https://signature-agent.test"')).toEqual(
       {
