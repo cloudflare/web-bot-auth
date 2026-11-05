@@ -213,6 +213,22 @@ impl SignedDirectory<'_> {
     }
 }
 
+fn report_failure(url: &str, warnings: &[String], message: String) -> String {
+    let result = ValidationResult {
+        success: false,
+        message: message.clone(),
+        details: ValidationDetails {
+            url: url.to_string(),
+            keys_count: 0,
+            validated_keys: vec![],
+            errors: vec![message.clone()],
+            warnings: warnings.to_vec(),
+        },
+    };
+    eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+    message
+}
+
 fn main() -> Result<(), String> {
     env_logger::init();
     let cli = Cli::parse();
@@ -226,18 +242,7 @@ fn main() -> Result<(), String> {
         Ok(url) => url,
         Err(error) => {
             let error_msg = format!("URL parsing error: {:?}", error);
-            let result = ValidationResult {
-                success: false,
-                message: error_msg.clone(),
-                details: ValidationDetails {
-                    url: cli.url.clone(),
-                    keys_count: 0,
-                    validated_keys: vec![],
-                    errors: vec![error_msg.clone()],
-                    warnings: vec![],
-                },
-            };
-            eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+            report_failure(&cli.url, &warnings, error_msg);
             return Err("URL parsing failed".to_string());
         }
     };
@@ -247,7 +252,11 @@ fn main() -> Result<(), String> {
         || url.password().is_some()
         || url.fragment().is_some()
     {
-        return Err("URL must use HTTPS without credentials or a fragment".to_string());
+        return Err(report_failure(
+            &cli.url,
+            &warnings,
+            "URL must use HTTPS without credentials or a fragment".to_string(),
+        ));
     }
 
     let authority = url.authority();
@@ -261,30 +270,22 @@ fn main() -> Result<(), String> {
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| report_failure(&cli.url, &warnings, e.to_string()))?;
     let response = match fetch_directory(&client, &url, &cli.user_agent) {
         Ok(response) => response,
         Err(error) => {
             let error_msg = format!("Fetch error: {:?}", error);
-            errors.push(error_msg.clone());
-            let result = ValidationResult {
-                success: false,
-                message: error_msg,
-                details: ValidationDetails {
-                    url: cli.url.clone(),
-                    keys_count: 0,
-                    validated_keys: vec![],
-                    errors,
-                    warnings,
-                },
-            };
-            eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+            report_failure(&cli.url, &warnings, error_msg);
             return Err("Fetch failed".to_string());
         }
     };
 
     if response.status() != reqwest::StatusCode::OK {
-        return Err(format!("discovery returned HTTP {}", response.status()));
+        return Err(report_failure(
+            &cli.url,
+            &warnings,
+            format!("discovery returned HTTP {}", response.status()),
+        ));
     }
     let resolved_url = response.url().clone();
     let well_known = resolved_url.path() == WELL_KNOWN_PATH;
@@ -301,7 +302,11 @@ fn main() -> Result<(), String> {
             .and_then(|v| v.split(';').next())
             .is_some_and(|v| v.trim().eq_ignore_ascii_case(MIME_TYPE))
     {
-        return Err("invalid well-known directory media type".into());
+        return Err(report_failure(
+            resolved_url.as_str(),
+            &warnings,
+            "invalid well-known directory media type".into(),
+        ));
     }
 
     let headers = response.headers().clone();
@@ -331,22 +336,11 @@ fn main() -> Result<(), String> {
 
     let mut body = Vec::new();
     let body_text = match response.take(64_001).read_to_end(&mut body) {
-        Ok(_) => String::from_utf8(body).map_err(|e| e.to_string())?,
+        Ok(_) => String::from_utf8(body)
+            .map_err(|e| report_failure(resolved_url.as_str(), &warnings, e.to_string()))?,
         Err(err) => {
             let error_msg = format!("Failed to read response body: {:?}", err);
-            errors.push(error_msg.clone());
-            let result = ValidationResult {
-                success: false,
-                message: error_msg.clone(),
-                details: ValidationDetails {
-                    url: cli.url.clone(),
-                    keys_count: 0,
-                    validated_keys: vec![],
-                    errors,
-                    warnings,
-                },
-            };
-            eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+            report_failure(&cli.url, &warnings, error_msg);
             return Err("Body read failed".to_string());
         }
     };
@@ -356,19 +350,7 @@ fn main() -> Result<(), String> {
         Ok(jwks) => jwks,
         Err(error) => {
             let error_msg = format!("Failed to parse content as JSON web key set: {:?}", error);
-            errors.push(error_msg.clone());
-            let result = ValidationResult {
-                success: false,
-                message: error_msg,
-                details: ValidationDetails {
-                    url: cli.url.clone(),
-                    keys_count: 0,
-                    validated_keys: vec![],
-                    errors,
-                    warnings,
-                },
-            };
-            eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+            report_failure(&cli.url, &warnings, error_msg);
             eprintln!("This was the data the server sent back:");
             eprintln!("--- RAW RESPONSE BODY START ---");
             println!("{}", body_text);
