@@ -128,6 +128,12 @@ func webBotAuthLabels(r *http.Request) ([]signatureCandidate, error) {
 // coversSignatureAgent reports whether a signature covers the Signature-Agent member
 // keyed to its label, as Section 5.2.1 requires when the header is present. The legacy
 // String form is a single member keyed to the label, so it is covered without a key.
+//
+// httpsig-go v1.2.2 ignores the key parameter and computes the signature base over the
+// whole Signature-Agent field, so a signature that covers a Dictionary member fails
+// verification. Until a release includes remitly-oss/httpsig-go#39, only requests that
+// omit Signature-Agent or send its legacy String form can pass this check and
+// verification together.
 func coversSignatureAgent(r *http.Request, label string, components sfv.InnerList) bool {
 	header := r.Header.Values("Signature-Agent")
 	if len(header) == 0 {
