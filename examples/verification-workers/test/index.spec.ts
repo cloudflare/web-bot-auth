@@ -484,6 +484,23 @@ describe("/v0/api/proxy-directory endpoint", () => {
 		});
 	});
 
+	it.each([new Uint8Array([0xff]), new Uint8Array([0xe2, 0x82])])(
+		"reports invalid UTF-8 separately from oversized responses: %s",
+		async (body) => {
+			vi.stubGlobal("fetch", mockedFetch(new Response(body)));
+
+			const response = await fetchValidator({
+				url: directoryURL,
+				"cf-turnstile-response": "token",
+			});
+
+			expect(response.status).toEqual(502);
+			expect(await response.json()).toEqual({
+				error: "Directory response could not be read as UTF-8",
+			});
+		}
+	);
+
 	it("proxies a directory response", async () => {
 		const directory = {
 			keys: [{}],
