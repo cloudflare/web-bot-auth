@@ -56,7 +56,7 @@ impl std::fmt::Display for Algorithm {
         match self {
             Algorithm::Ed25519 => write!(f, "ed25519"),
             Algorithm::RsaPssSha512 => write!(f, "rsa-pss-sha512"),
-            Algorithm::RsaV1_5Sha256 => write!(f, "rsa-pss-sha512"),
+            Algorithm::RsaV1_5Sha256 => write!(f, "rsa-v1_5-sha256"),
             Algorithm::HmacSha256 => write!(f, "hmac-sha256"),
             Algorithm::EcdsaP256Sha256 => write!(f, "ecdsa-p256-sha256"),
             Algorithm::EcdsaP384Sha384 => write!(f, "ecdsa-p384-sha384"),

@@ -28,10 +28,8 @@ pub mod message_signatures;
 /// Parsers for Signature-Agent, registry, and Signature Agent Card data.
 pub mod registry;
 
-use data_url::DataUrl;
-
 use components::{CoveredComponent, HTTPField, HTTPFieldParameters};
-use keyring::{Algorithm, JSONWebKeySet, KeyRing};
+use keyring::{Algorithm, KeyRing};
 use message_signatures::{
     MessageVerifier, ParsedLabel, SecurityAdvisory, SignatureTiming, SignedMessage,
 };
@@ -174,11 +172,9 @@ pub struct AdvisoryVerification {
 /// The different types of URLs a `Signature-Agent` can have.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum SignatureAgentLink {
-    /// A data URL that was parsed into a JSON Web Key Set ahead of time.
-    Inline(JSONWebKeySet),
-    /// A directory origin to resolve at the well-known path.
+    /// An origin-only URL: try the well-known path, then this URL on HTTP 404/410.
     Directory(String),
-    /// A direct JWK Set URI.
+    /// A direct JWK Set URI. The well-known path requires directory validation.
     JwksUri(String),
     /// A Client ID Metadata Document URI.
     Cimd(String),
@@ -241,40 +237,20 @@ impl WebBotAuthVerifier {
             }
         }
 
-        let parse_link = |link_str: &str, discovery_type: &SignatureAgentDiscoveryType, legacy| {
-            if link_str.starts_with("https://") || link_str.starts_with("http://") {
-                return Some(match discovery_type {
-                    SignatureAgentDiscoveryType::Directory => {
-                        if legacy {
-                            SignatureAgentLink::LegacyDirectory(String::from(link_str))
-                        } else {
-                            SignatureAgentLink::Directory(String::from(link_str))
-                        }
-                    }
-                    SignatureAgentDiscoveryType::JwksUri => {
-                        SignatureAgentLink::JwksUri(String::from(link_str))
-                    }
-                    SignatureAgentDiscoveryType::Cimd => {
-                        SignatureAgentLink::Cimd(String::from(link_str))
-                    }
-                });
-            }
-
-            if *discovery_type == SignatureAgentDiscoveryType::Directory
-                && let Ok(url) = DataUrl::process(link_str)
-            {
-                let mediatype = url.mime_type();
-                if mediatype.type_ == "application"
-                    && mediatype.subtype == "http-message-signatures-directory"
-                    && let Ok((body, _)) = url.decode_to_vec()
-                    && let Ok(jwks) = serde_json::from_slice::<JSONWebKeySet>(&body)
-                {
-                    return Some(SignatureAgentLink::Inline(jwks));
+        let parse_link =
+            |link_str: &str, discovery_type: &Option<SignatureAgentDiscoveryType>, legacy| {
+                if *discovery_type == Some(SignatureAgentDiscoveryType::Cimd) {
+                    return Some(SignatureAgentLink::Cimd(link_str.into()));
                 }
-            }
-
-            None
-        };
+                let url = url::Url::parse(link_str).ok()?;
+                Some(if url.path() != "/" {
+                    SignatureAgentLink::JwksUri(link_str.into())
+                } else if legacy {
+                    SignatureAgentLink::LegacyDirectory(link_str.into())
+                } else {
+                    SignatureAgentLink::Directory(link_str.into())
+                })
+            };
 
         let parsed_directories = match signature_agent_key {
             Some(key) => signature_agents
@@ -808,12 +784,19 @@ mod tests {
 
         for (signature_agent, expected) in [
             (
-                r#"agent1="https://directory.example";type=directory"#,
+                r#"agent1="https://directory.example""#,
                 SignatureAgentLink::Directory("https://directory.example".to_string()),
             ),
             (
-                r#"agent1="https://directory.example/jwks.json";type=jwks_uri"#,
+                r#"agent1="https://directory.example/jwks.json""#,
                 SignatureAgentLink::JwksUri("https://directory.example/jwks.json".to_string()),
+            ),
+            (
+                r#"agent1="https://directory.example/.well-known/http-message-signatures-directory""#,
+                SignatureAgentLink::JwksUri(
+                    "https://directory.example/.well-known/http-message-signatures-directory"
+                        .to_string(),
+                ),
             ),
             (
                 r#"agent1="https://directory.example/card";type=cimd"#,
