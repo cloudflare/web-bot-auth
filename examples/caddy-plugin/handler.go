@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	sfv "github.com/dunglas/httpsfv"
@@ -156,11 +157,24 @@ func coversSignatureAgent(r *http.Request, label string, components sfv.InnerLis
 	})
 }
 
+// combineSignatureFieldLines puts each of Signature-Input and Signature on one field line.
+// httpsig-go v1.2.2 reads only the first line of each (remitly-oss/httpsig-go#18), so it
+// can't find a signature whose members arrive on a later line. RFC 9110 Section 5.3 lets
+// a recipient combine field lines with commas without changing their meaning.
+func combineSignatureFieldLines(header http.Header) {
+	for _, name := range []string{"Signature-Input", "Signature"} {
+		if values := header.Values(name); len(values) > 1 {
+			header.Set(name, strings.Join(values, ", "))
+		}
+	}
+}
+
 func (v *SignatureValidator) Validate(r *http.Request) (string, error) {
 	labels, err := webBotAuthLabels(r)
 	if err != nil {
 		return "", err
 	}
+	combineSignatureFieldLines(r.Header)
 	var lastErr error
 	for _, candidate := range labels {
 		label := candidate.label

@@ -338,3 +338,41 @@ func TestValidateAcceptsIndependentlySignedSignatureAgentMember(t *testing.T) {
 		t.Fatalf("validate: %v", err)
 	}
 }
+
+// TestValidateChoosesAmongSeveralSignatures sends a valid web-bot-auth signature after one
+// that must not be used, in a single header line and in separate header lines.
+func TestValidateChoosesAmongSeveralSignatures(t *testing.T) {
+	validator, privateKey, keyID := newTestValidator(t)
+	_, untrustedKey, untrustedKeyID := testJWK(t)
+	valid := signedRequestWith(t, privateKey, keyID, signingOptions{label: "sig2"})
+
+	for _, first := range []struct {
+		name string
+		req  *http.Request
+	}{
+		{name: "other tag", req: signedRequestWith(t, privateKey, keyID, signingOptions{label: "sig1", tag: "other"})},
+		{name: "untrusted key", req: signedRequestWith(t, untrustedKey, untrustedKeyID, signingOptions{label: "sig1"})},
+	} {
+		for _, layout := range []struct {
+			name    string
+			combine func(first, second string) []string
+		}{
+			{name: "one header line", combine: func(first, second string) []string { return []string{first + ", " + second} }},
+			{name: "separate header lines", combine: func(first, second string) []string { return []string{first, second} }},
+		} {
+			t.Run(first.name+", "+layout.name, func(t *testing.T) {
+				req := httptest.NewRequest("GET", "https://example.com/data", nil)
+				for _, header := range []string{"Signature-Input", "Signature"} {
+					req.Header[header] = layout.combine(first.req.Header.Get(header), valid.Header.Get(header))
+				}
+				gotKeyID, err := validator.Validate(req)
+				if err != nil {
+					t.Fatalf("validate: %v", err)
+				}
+				if gotKeyID != keyID {
+					t.Fatalf("keyID = %q, want %q", gotKeyID, keyID)
+				}
+			})
+		}
+	}
+}
