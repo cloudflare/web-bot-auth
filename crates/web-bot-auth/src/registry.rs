@@ -199,6 +199,18 @@ fn validate_discovery_uri(uri: &str) -> Result<(), RegistryError> {
             "Signature-Agent must use https".into(),
         ));
     }
+    // RFC 9110 Section 4.2.2 requires rejecting an https URI with an empty host.
+    // The URL parser takes a host from "https:///x", "https:x", and "https:\x",
+    // so check the value as sent.
+    let names_host = uri
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+        && !uri[8..].starts_with(['/', '\\']);
+    if !names_host {
+        return Err(RegistryError::Invalid(
+            "Signature-Agent must name a host".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -508,6 +520,58 @@ mod tests {
             r#"a="https://example.com";type=directory, b="https://example.com";type=jwks_uri"#,
         )
         .unwrap();
+        assert!(parsed.entries().is_empty());
+    }
+
+    #[test]
+    fn rejects_signature_agent_without_https() {
+        for header in [
+            r#"sig1="http://signature-agent.test""#,
+            r#"sig1="http://signature-agent.test/card";type=cimd"#,
+            r#"sig1="https://a.test", sig2="http://signature-agent.test""#,
+            r#""http://signature-agent.test""#,
+        ] {
+            let error = parse_signature_agent_header(header)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("Signature-Agent must use https"),
+                "{header}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_https_signature_agent_with_an_empty_host() {
+        for header in [
+            r#"sig1="https:///signature-agent.test""#,
+            r#"sig1="https:signature-agent.test""#,
+            r#"sig1="https:\\signature-agent.test""#,
+            r#""https:///signature-agent.test""#,
+        ] {
+            let error = parse_signature_agent_header(header)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("Signature-Agent must name a host"),
+                "{header}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_https_scheme_in_any_case() {
+        let parsed =
+            parse_signature_agent_header(r#"sig1="HTTPS://signature-agent.test""#).unwrap();
+        assert_eq!(parsed.entries().len(), 1);
+        assert_eq!(parsed.entries()[0].uri, "HTTPS://signature-agent.test");
+    }
+
+    #[test]
+    fn ignores_http_signature_agent_member_with_parameters() {
+        let parsed =
+            parse_signature_agent_header(r#"sig1="http://signature-agent.test";type=directory"#)
+                .unwrap();
         assert!(parsed.entries().is_empty());
     }
 
