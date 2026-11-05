@@ -975,6 +975,75 @@ mod tests {
     }
 
     #[test]
+    fn test_algorithm_display_round_trips_through_alg_parameter() {
+        for algorithm in [
+            Algorithm::Ed25519,
+            Algorithm::RsaPssSha512,
+            Algorithm::RsaV1_5Sha256,
+            Algorithm::HmacSha256,
+            Algorithm::EcdsaP256Sha256,
+            Algorithm::EcdsaP384Sha384,
+        ] {
+            let parameters: SignatureParams = IndexMap::from_iter([(
+                sfv::Key::from_string("alg".into()).unwrap(),
+                sfv::BareItem::String(sfv::String::from_string(algorithm.to_string()).unwrap()),
+            )])
+            .into();
+            assert_eq!(parameters.details.algorithm, Some(algorithm));
+        }
+    }
+
+    #[test]
+    fn test_signing_with_custom_signer_writes_its_alg() {
+        // `GenerateSignature` is the extension point for signers this crate does not
+        // implement itself, so the `alg` it writes must name the algorithm passed in.
+        struct FixedSignature;
+        impl GenerateSignature for FixedSignature {
+            fn generate_signature(
+                &self,
+                _algorithm: Algorithm,
+                _msg: &[u8],
+            ) -> Result<Vec<u8>, ImplementationError> {
+                Ok(vec![0; 256])
+            }
+        }
+
+        struct CapturedInput(String);
+        impl UnsignedMessage for CapturedInput {
+            fn fetch_components_to_cover(&self) -> IndexMap<CoveredComponent, String> {
+                IndexMap::from_iter([(
+                    CoveredComponent::Derived(DerivedComponent::Authority { req: false }),
+                    "example.com".to_string(),
+                )])
+            }
+
+            fn register_header_contents(
+                &mut self,
+                signature_input: String,
+                _signature_header: String,
+            ) {
+                self.0 = signature_input;
+            }
+        }
+
+        let signer = MessageSigner {
+            keyid: "test".into(),
+            nonce: "another-test".into(),
+            tag: "web-bot-auth".into(),
+        };
+        let mut message = CapturedInput(String::new());
+        signer
+            .generate_signature_headers_content(
+                &mut message,
+                Duration::from_secs(10),
+                Algorithm::RsaV1_5Sha256,
+                &FixedSignature,
+            )
+            .unwrap();
+        assert!(message.0.contains(r#";alg="rsa-v1_5-sha256";"#));
+    }
+
+    #[test]
     fn signature_base_generates_the_expected_representation() {
         let sigbase = SignatureBase {
             components: IndexMap::from_iter([
