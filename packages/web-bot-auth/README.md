@@ -5,7 +5,7 @@
 
 [npm]: https://www.npmjs.com/package/web-bot-auth
 
-TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/).
+TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-httpsig-protocol-01](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/01/).
 
 ## Table of Contents
 
