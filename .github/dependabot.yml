@@ -21,6 +21,8 @@ updates:
     directories:
       - "/"
       - "/crates/*"
+    allow:
+      - dependency-type: all
     schedule:
       interval: weekly
     groups:
@@ -38,6 +40,8 @@ updates:
   - package-ecosystem: cargo
     directories:
       - "/examples/*"
+    allow:
+      - dependency-type: all
     patterns:
       - "*"
     multi-ecosystem-group: examples
@@ -45,6 +49,8 @@ updates:
   - package-ecosystem: uv
     directories:
       - "/examples/*"
+    allow:
+      - dependency-type: all
     patterns:
       - "*"
     multi-ecosystem-group: examples
@@ -52,6 +58,8 @@ updates:
   - package-ecosystem: gomod
     directories:
       - "/examples/*"
+    allow:
+      - dependency-type: all
     patterns:
       - "*"
     multi-ecosystem-group: examples
