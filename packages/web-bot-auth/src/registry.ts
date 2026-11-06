@@ -1,11 +1,11 @@
-import { parseDictionary, parseItem } from "structured-headers";
+import { parseDictionary, parseItem, Token } from "structured-headers";
 
-export type SignatureAgentDiscoveryType = "directory" | "jwks_uri" | "cimd";
+export type SignatureAgentDiscoveryType = "cimd";
 
 export interface SignatureAgentEntry {
   label: string;
   uri: string;
-  type: SignatureAgentDiscoveryType;
+  type?: SignatureAgentDiscoveryType;
 }
 
 export type SignatureAgentHeader =
@@ -133,27 +133,16 @@ function triggerValue(value: unknown): "fetcher" | "crawler" | undefined {
   throw new Error("trigger must be fetcher or crawler");
 }
 
-function discoveryType(value: unknown): SignatureAgentDiscoveryType {
-  const typeName = value === undefined ? "directory" : String(value);
-  if (typeName === "directory") {
-    return "directory";
-  }
-  if (typeName === "jwks_uri" || typeName === "cimd") {
-    return typeName;
-  }
-  throw new Error(`unsupported Signature-Agent type ${typeName}`);
-}
-
-function validateDiscoveryURI(uri: string, type: SignatureAgentDiscoveryType) {
+function validateDiscoveryURI(uri: string) {
   const url = new URL(uri);
-  if (type === "directory") {
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      return;
-    }
-    throw new Error("directory Signature-Agent must use http or https");
-  }
   if (url.protocol !== "https:") {
-    throw new Error(`${type} Signature-Agent must use https`);
+    throw new Error("Signature-Agent must use https");
+  }
+  // RFC 9110 Section 4.2.2 requires rejecting an https URI with an empty host.
+  // The URL parser takes a host from "https:///x", "https:x", and "https:\x",
+  // so check the value as sent.
+  if (!/^https:\/\/[^/\\]/i.test(uri)) {
+    throw new Error("Signature-Agent must name a host");
   }
 }
 
@@ -171,23 +160,37 @@ export function parseSignatureAgentHeader(
       if (typeof uri !== "string") {
         throw new Error("Signature-Agent values must be strings");
       }
-      const type = discoveryType(params.get("type"));
-      validateDiscoveryURI(uri, type);
-      entries.push({ label, uri, type });
+      const type = params.get("type");
+      if (
+        params.size !== 0 &&
+        !(
+          params.size === 1 &&
+          type instanceof Token &&
+          type.toString() === "cimd"
+        )
+      ) {
+        continue;
+      }
+      validateDiscoveryURI(uri);
+      entries.push(
+        type === undefined ? { label, uri } : { label, uri, type: "cimd" }
+      );
     }
     return { kind: "current", entries };
   } catch (dictionaryError) {
     try {
-      const [uri] = parseItem(header);
+      const [uri, params] = parseItem(header);
       if (typeof uri !== "string") {
         throw new Error("legacy Signature-Agent must be a string", {
           cause: dictionaryError,
         });
       }
-      validateDiscoveryURI(uri, "directory");
+      if (params.size !== 0)
+        throw new Error("legacy Signature-Agent must not carry parameters");
+      validateDiscoveryURI(uri);
       return {
         kind: "legacy",
-        entries: [{ label: "", uri, type: "directory" }],
+        entries: [{ label: "", uri }],
       };
     } catch (itemError) {
       throw new Error(

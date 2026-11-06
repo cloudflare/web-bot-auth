@@ -82,7 +82,7 @@ export interface SignSyncOptions extends Omit<SignOptions, "signer"> {
 
 export interface UntrustedWebBotSignatureCandidate {
   readonly keyid: string;
-  readonly algorithm: WebBotAlgorithm;
+  readonly algorithm?: WebBotAlgorithm;
   readonly signatureAgent?: SignatureAgentEntry;
 }
 
@@ -195,7 +195,7 @@ function signingSignatureAgent(
   }
   const entry = parsed.entries.find((candidate) => candidate.label === key);
   if (entry === undefined) {
-    return policyError(`Signature-Agent has no member ${key}`);
+    return policyError(`Signature-Agent has no supported member ${key}`);
   }
   return Object.freeze({
     component: component(SIGNATURE_AGENT_HEADER, { key }),
@@ -246,7 +246,7 @@ function verifiedSignatureAgent(
   }
   const entry = parsed.entries.find((candidate) => candidate.label === keys[0]);
   if (entry === undefined) {
-    return policyError(`Signature-Agent has no member ${keys[0]}`);
+    return policyError(`Signature-Agent has no supported member ${keys[0]}`);
   }
   return Object.freeze({ ...entry });
 }
@@ -271,11 +271,6 @@ function signingOptions(
   const expires = seconds(options.expires, "expires");
   if (created > expires)
     return policyError("created must not be after expires");
-  if (options.nonce !== undefined && !validateNonce(options.nonce)) {
-    return policyError(
-      "nonce must be canonical base64 or unpadded base64url encoding of 64 bytes"
-    );
-  }
   const agent = signingSignatureAgent(
     request,
     options.signatureAgentKey ?? label
@@ -324,8 +319,12 @@ function profileCandidate(
   candidate: UntrustedSignatureCandidate
 ): UntrustedWebBotSignatureCandidate {
   const { algorithm, parameters, components } = candidate;
-  if (algorithm !== "ed25519" && algorithm !== "rsa-pss-sha512") {
-    return policyError("signed algorithm is missing or unsupported");
+  if (
+    algorithm !== undefined &&
+    algorithm !== "ed25519" &&
+    algorithm !== "rsa-pss-sha512"
+  ) {
+    return policyError("signed algorithm is unsupported");
   }
   const keyid = parameters.keyid;
   if (typeof keyid !== "string" || keyid === "") {
@@ -341,11 +340,6 @@ function profileCandidate(
   }
   if (created > expires)
     return policyError("created must not be after expires");
-  if (parameters.nonce !== undefined && !validateNonce(parameters.nonce)) {
-    return policyError(
-      "nonce must be canonical base64 or unpadded base64url encoding of 64 bytes"
-    );
-  }
   if (!hasExactBareTarget(components)) {
     return policyError(
       "signature must cover bare @authority or bare @target-uri"
@@ -367,7 +361,7 @@ export async function verify<V extends WebBotVerifier>(
     policy: {
       algorithms,
       requiredComponents: [],
-      requiredParameters: ["created", "expires", "keyid", "alg", "tag"],
+      requiredParameters: ["created", "expires", "keyid", "tag"],
       maxAge: options.maxAge ?? 86_400,
       clockSkew: options.clockSkew ?? 0,
       now,

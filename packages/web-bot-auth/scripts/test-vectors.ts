@@ -57,7 +57,7 @@ interface SignatureAgentVector {
   entries: {
     label: string;
     uri: string;
-    type: "directory" | "jwks_uri" | "cimd";
+    type?: "cimd";
   }[];
 }
 
@@ -247,24 +247,28 @@ async function generateDirectoryResponseVector(
 
 const signatureAgentVectors: SignatureAgentVector[] = [
   {
-    name: "directory-default",
+    name: "origin-default",
     header: 'sig1="https://signature-agent.test"',
+    entries: [{ label: "sig1", uri: "https://signature-agent.test" }],
+  },
+  {
+    name: "directory-default",
+    header:
+      'sig1="https://signature-agent.test/.well-known/http-message-signatures-directory"',
     entries: [
       {
         label: "sig1",
-        uri: "https://signature-agent.test",
-        type: "directory",
+        uri: "https://signature-agent.test/.well-known/http-message-signatures-directory",
       },
     ],
   },
   {
-    name: "jwks-uri",
-    header: 'sig1="https://signature-agent.test/jwks.json";type=jwks_uri',
+    name: "jwks-default",
+    header: 'sig1="https://signature-agent.test/jwks.json"',
     entries: [
       {
         label: "sig1",
         uri: "https://signature-agent.test/jwks.json",
-        type: "jwks_uri",
       },
     ],
   },
@@ -432,6 +436,6 @@ writeVectors(
   "web_bot_auth_directory_response_v1.json",
   directoryResponseVectors
 );
-writeVectors("web_bot_auth_signature_agent_v1.json", signatureAgentVectors);
+writeVectors("web_bot_auth_signature_agent_v2.json", signatureAgentVectors);
 writeVectors("web_bot_auth_registry_v1.json", registryVectors);
 writeVectors("web_bot_auth_signature_agent_card_v1.json", cardVectors);

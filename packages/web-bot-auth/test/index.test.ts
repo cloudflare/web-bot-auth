@@ -82,7 +82,7 @@ describe.each(vectors)("architecture vector: $label/$key.kty", (vector) => {
     });
     expect(fields.signatureInput).toBe(vector.signature_input);
 
-    const verifier = await verifierFromJWK(vector.key);
+    const verifier = await verifierFromJWK({ ...vector.key, alg: undefined });
     const result = await verify(withSignature(request, fields), {
       now: new Date(vector.created_ms),
       resolver: () => verifier,
@@ -149,16 +149,17 @@ describe("nonce", () => {
     "A".repeat(85),
     "A".repeat(85) + "=",
     "A".repeat(85) + "+",
-  ])("rejects malformed nonce %s", async (nonce) => {
+  ])("accepts RFC 9421 nonce %s", async (nonce) => {
     const signer = await signerFromJWK(ed25519Jwk);
+    const verifier = await verifierFromJWK(ed25519Jwk);
+    const request = await signedRequest(
+      new Request("https://example.com"),
+      signer,
+      { nonce }
+    );
     await expect(
-      sign(new Request("https://example.com"), {
-        signer,
-        created,
-        expires,
-        nonce,
-      })
-    ).rejects.toThrow("canonical base64 or unpadded base64url");
+      verify(request, { resolver: () => verifier, now })
+    ).resolves.toMatchObject({ nonce });
   });
 });
 
@@ -171,7 +172,8 @@ describe("synchronous signing", () => {
     };
     const request = new Request("https://example.com", {
       headers: {
-        "signature-agent": 'sig1="https://bot.example";type=directory',
+        "signature-agent":
+          'sig1="https://bot.example/.well-known/http-message-signatures-directory"',
       },
     });
     const fields = signSync(request, { signer, created, expires });
@@ -217,8 +219,48 @@ describe("Signature-Agent coverage", () => {
       headers: { "signature-agent": 'other="https://bot.example"' },
     });
     await expect(sign(request, { signer, created, expires })).rejects.toThrow(
-      "Signature-Agent has no member sig1"
+      "Signature-Agent has no supported member sig1"
     );
+  });
+
+  it("rejects a member with an unsupported discovery type while signing", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: {
+        "signature-agent": 'sig1="https://bot.example";type=directory',
+      },
+    });
+    await expect(sign(request, { signer, created, expires })).rejects.toThrow(
+      "Signature-Agent has no supported member sig1"
+    );
+  });
+
+  it("rejects an http member before resolution", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com", {
+      headers: { "signature-agent": 'sig1="http://bot.example"' },
+    });
+    const fields = await createSignature(request, {
+      signer,
+      components: ["@authority", component("signature-agent", { key: "sig1" })],
+      parameters: {
+        created: Math.floor(created.getTime() / 1000),
+        expires: Math.floor(expires.getTime() / 1000),
+        keyid: signer.keyid,
+        alg: signer.algorithm,
+        tag: "web-bot-auth",
+      },
+    });
+    const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+    await expect(
+      verify(withSignature(request, fields), { resolver, now })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: {
+        message: expect.stringContaining("Signature-Agent must use https"),
+      },
+    });
+    expect(resolver).not.toHaveBeenCalled();
   });
 
   it("rejects whole-field-only coverage before resolution", async () => {
@@ -340,12 +382,31 @@ describe("Signature-Agent coverage", () => {
         now,
       })
     ).resolves.toMatchObject({
-      signatureAgent: { uri: "https://bot.example", type: "directory" },
+      signatureAgent: { uri: "https://bot.example" },
     });
   });
 });
 
 describe("verification policy", () => {
+  it("resolves the algorithm from the key when alg is absent", async () => {
+    const signer = await signerFromJWK(ed25519Jwk);
+    const verifier = await verifierFromJWK(ed25519Jwk);
+    const request = new Request("https://example.com");
+    const fields = await createSignature(request, {
+      signer,
+      components: ["@authority"],
+      parameters: {
+        created: created.getTime() / 1000,
+        expires: expires.getTime() / 1000,
+        keyid: signer.keyid,
+        tag: "web-bot-auth",
+      },
+    });
+    await expect(
+      verify(withSignature(request, fields), { resolver: () => verifier, now })
+    ).resolves.toMatchObject({ algorithm: "ed25519" });
+  });
+
   it("rejects algorithm mismatch", async () => {
     const signer = await signerFromJWK(ed25519Jwk);
     const request = await signedRequest(
