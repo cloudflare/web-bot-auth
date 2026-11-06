@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing guidelines
+    url: https://github.com/cloudflare/web-bot-auth/blob/main/CONTRIBUTING.md
+    about: >-
+      Please read before opening an issue. Only bug reports, feature requests
+      and questions are accepted. For interop issues (where the Rust and
+      TypeScript libraries differ in their behaviour, but do not violate the
+      Web Bot Auth specification), please open a feature request separately
+      for each library, stating the final goal.
