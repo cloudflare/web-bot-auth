@@ -58,7 +58,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
   function (details) {
     details.requestHeaders?.push({
       name: "Signature-Agent",
-      value: `sig1="${SIGNATURE_AGENT}";type=directory`,
+      value: `sig1="${SIGNATURE_AGENT}"`,
     });
 
     const headers = new Headers();

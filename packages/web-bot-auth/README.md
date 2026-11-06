@@ -5,7 +5,7 @@
 
 [npm]: https://www.npmjs.com/package/web-bot-auth
 
-TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/).
+TypeScript helpers for Web Bot Auth, as described in [draft-meunier-webbotauth-httpsig-protocol-01](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/01/).
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ To help debug `web-both-auth` HTTPS requests, Cloudflare Research provides a tes
 import { generateNonce, sign } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 
-const signatureAgent = 'sig1="https://signature-agent.test";type=directory';
+const signatureAgent = 'sig1="https://signature-agent.test"';
 const request = new Request("https://example.com", {
   headers: { "Signature-Agent": signatureAgent },
 });

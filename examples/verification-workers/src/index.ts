@@ -15,7 +15,8 @@
 import {
 	HTTP_MESSAGE_SIGNATURES_DIRECTORY,
 	SignatureAgentCard,
-	SignatureAgentEntry,
+	jwkToKeyID,
+	type SignatureAgentEntry,
 	parseRegistry,
 	parseSignatureAgentCard,
 	sign,
@@ -26,18 +27,19 @@ import { signerFromJWK, verifierFromJWK } from "web-bot-auth/crypto";
 import {
 	component,
 	createSignature,
+	verifySignature as verifyMessageSignature,
 	type FieldOccurrence,
 	type RequestDescriptor,
 	type ResponseDescriptor,
 } from "http-message-sig";
+import { parseDictionary } from "structured-headers";
 import { generateDebugHTML } from "./debug-html";
 import { invalidHTML, neutralHTML, validHTML } from "./index-html";
-import { proxyDirectoryRequest } from "./proxy-directory";
+import { proxyDirectoryRequest, readTextWithLimit } from "./proxy-directory";
 import jwk from "../../rfc9421-keys/ed25519.json" assert { type: "json" };
 
 const DIRECTORY_MEDIA_TYPE =
 	"application/http-message-signatures-directory+json";
-const DIRECTORY_MAX_KEYS = 100;
 
 interface Directory {
 	readonly keys: readonly JsonWebKey[];
@@ -45,57 +47,10 @@ interface Directory {
 }
 
 function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function jsonWebKeyFromUnknown(value: unknown): JsonWebKey {
-	if (!isRecord(value)) {
-		throw new Error("JWK must be an object");
-	}
-	if (typeof value.kty !== "string") {
-		throw new Error("JWK kty must be a string");
-	}
-	const key: JsonWebKey = {
-		alg: typeof value.alg === "string" ? value.alg : undefined,
-		crv: typeof value.crv === "string" ? value.crv : undefined,
-		d: typeof value.d === "string" ? value.d : undefined,
-		e: typeof value.e === "string" ? value.e : undefined,
-		kty: value.kty,
-		kid: typeof value.kid === "string" ? value.kid : undefined,
-		n: typeof value.n === "string" ? value.n : undefined,
-		x: typeof value.x === "string" ? value.x : undefined,
-		y: typeof value.y === "string" ? value.y : undefined,
-	};
-	if (Array.isArray(value.key_ops)) {
-		const keyOps: string[] = [];
-		for (const keyOp of value.key_ops) {
-			if (typeof keyOp === "string") {
-				keyOps.push(keyOp);
-			}
-		}
-		key.key_ops = keyOps;
-	}
-	if (typeof value.ext === "boolean") {
-		key.ext = value.ext;
-	}
-	return key;
-}
-
-function directoryFromUnknown(value: unknown): Directory {
-	if (!isRecord(value) || !Array.isArray(value.keys)) {
-		throw new Error("directory must contain keys");
-	}
-	if (value.keys.length > DIRECTORY_MAX_KEYS) {
-		throw new Error("directory contains too many keys");
-	}
-	return {
-		keys: value.keys.map(jsonWebKeyFromUnknown),
-		purpose: typeof value.purpose === "string" ? value.purpose : "",
-	};
+	if (!(error instanceof Error)) return String(error);
+	return error.cause === undefined
+		? error.message
+		: `${error.message}: ${errorMessage(error.cause)}`;
 }
 
 async function getExampleDirectory(): Promise<Directory> {
@@ -120,6 +75,7 @@ function signatureAgentOrigin(env: Env): string {
 function getSignatureAgentCard(env: Env): SignatureAgentCard {
 	const origin = signatureAgentOrigin(env);
 	return parseSignatureAgentCard({
+		client_id: `${origin}/signature-agent-card`,
 		client_name: "Example Bot",
 		client_uri: origin,
 		logo_uri: `${origin}/favicon.png`,
@@ -148,42 +104,138 @@ function registryResponse(env: Env): Response {
 	return new Response(registry, { headers: { "content-type": "text/plain" } });
 }
 
-async function fetchJSON(url: string): Promise<unknown> {
-	const response = await fetch(url);
-	if (!response.ok) {
-		throw new Error(`failed to fetch ${url}: ${response.status}`);
-	}
-	return response.json();
-}
-
-async function fetchDirectory(entry: SignatureAgentEntry): Promise<Directory> {
-	if (entry.type === "directory") {
-		const origin = new URL(entry.uri).origin;
-		const directoryURL = `${origin}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}`;
-		console.log(`Fetching Signature-Agent directory from: ${directoryURL}`);
-		return directoryFromUnknown(await fetchJSON(directoryURL));
-	}
-
-	if (entry.type === "jwks_uri") {
-		console.log(`Fetching Signature-Agent JWKS from: ${entry.uri}`);
-		return directoryFromUnknown(await fetchJSON(entry.uri));
-	}
-
-	const card = parseSignatureAgentCard(await fetchJSON(entry.uri), entry.uri);
-	if (card.jwks !== undefined) {
-		return directoryFromUnknown(card.jwks);
-	}
-	if (card.jwks_uri === undefined) {
-		throw new Error("signature agent card must contain jwks or jwks_uri");
-	}
-	return directoryFromUnknown(await fetchJSON(card.jwks_uri));
-}
-
 async function getSigner(): Promise<WebBotSigner> {
 	return signerFromJWK(jwk);
 }
 
-async function resolveVerifier(directory: Directory, keyid: string) {
+async function fetchResource(uri: string): Promise<Response> {
+	const url = new URL(uri);
+	if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+		throw new Error("discovery requires HTTPS without credentials or fragment");
+	}
+	return fetch(uri, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
+}
+
+async function readResource(response: Response): Promise<string> {
+	if (response.status !== 200) {
+		await response.body?.cancel();
+		throw new Error(`discovery returned HTTP ${response.status}`);
+	}
+	return readTextWithLimit(response, 64_000);
+}
+
+async function fetchDirectory(entry: SignatureAgentEntry, keyid: string) {
+	let uri = entry.uri;
+	if (entry.type === "cimd") {
+		const card = parseSignatureAgentCard(
+			JSON.parse(await readResource(await fetchResource(uri))),
+			uri
+		);
+		if (card.jwks !== undefined) return resolveVerifier(card.jwks, keyid);
+		if (card.jwks_uri === undefined) throw new Error("card has no keys");
+		uri = card.jwks_uri;
+	}
+	const target = new URL(uri);
+	const inferDirectory = entry.type === undefined && target.pathname === "/";
+	if (inferDirectory) {
+		target.pathname = HTTP_MESSAGE_SIGNATURES_DIRECTORY;
+		target.search = "";
+	}
+	let response = await fetchResource(target.href);
+	// Only absence permits fallback; a present directory must pass validation.
+	if (inferDirectory && (response.status === 404 || response.status === 410)) {
+		await response.body?.cancel();
+		target.href = uri;
+		response = await fetchResource(uri);
+	}
+	const body = await readResource(response);
+	const wellKnown = target.pathname === HTTP_MESSAGE_SIGNATURES_DIRECTORY;
+	if (
+		wellKnown &&
+		response.headers
+			.get("content-type")
+			?.split(";", 1)[0]
+			?.trim()
+			.toLowerCase() !== DIRECTORY_MEDIA_TYPE
+	) {
+		throw new Error("invalid well-known directory media type");
+	}
+	const { jwks } = parseSignatureAgentCard({ jwks: JSON.parse(body) });
+	if (jwks === undefined) throw new Error("directory has no keys");
+	const verifier = await resolveVerifier(jwks, keyid, wellKnown);
+	if (wellKnown) {
+		const digest = await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(body)
+		);
+		const advertised = parseDictionary(
+			response.headers.get("content-digest") ?? ""
+		).get("sha-256")?.[0];
+		if (
+			!(advertised instanceof ArrayBuffer) ||
+			base64(new Uint8Array(advertised)) !== base64(new Uint8Array(digest))
+		) {
+			throw new Error("directory Content-Digest mismatch");
+		}
+		const proof = [
+			...parseDictionary(response.headers.get("signature-input") ?? ""),
+		].find(
+			([, [, params]]) =>
+				params.get("keyid") === keyid &&
+				params.get("tag") === "http-message-signatures-directory"
+		);
+		if (proof === undefined)
+			throw new Error("directory lacks a possession proof");
+		await verifyMessageSignature(
+			{
+				kind: "response",
+				status: response.status,
+				fields: fields(response.headers),
+				request: {
+					kind: "request",
+					method: "GET",
+					targetUri: target.href,
+					fields: [],
+				},
+			},
+			{
+				label: proof[0],
+				policy: {
+					algorithms: [verifier.algorithm],
+					requiredComponents: [
+						component("@authority", { req: true }),
+						"content-digest",
+					],
+					requiredParameters: ["created", "expires", "keyid", "tag"],
+					validate: ({ parameters }) =>
+						parameters.tag === "http-message-signatures-directory",
+				},
+				resolveVerifier: () => verifier,
+			}
+		);
+	}
+	return verifier;
+}
+
+async function resolveVerifier(
+	directory: Pick<Directory, "keys">,
+	keyid: string,
+	wellKnown = false
+) {
+	if (directory.keys.length > 100)
+		throw new Error("directory contains too many keys");
+	if (wellKnown) {
+		for (const key of directory.keys) {
+			if (!("kid" in key)) continue;
+			const thumbprint = await jwkToKeyID(
+				key,
+				(data) => crypto.subtle.digest("SHA-256", data),
+				(hash) => base64Url(new Uint8Array(hash))
+			).catch(() => undefined);
+			if (key.kid !== thumbprint)
+				throw new Error("well-known JWK kid must match its thumbprint");
+		}
+	}
 	for (const key of directory.keys) {
 		try {
 			const verifier = await verifierFromJWK(key);
@@ -203,6 +255,13 @@ function fields(headers: Headers): FieldOccurrence[] {
 
 function base64(bytes: Uint8Array): string {
 	return btoa(String.fromCharCode(...bytes));
+}
+
+function base64Url(bytes: Uint8Array): string {
+	return base64(bytes)
+		.replaceAll("+", "-")
+		.replaceAll("/", "_")
+		.replace(/=+$/, "");
 }
 
 async function signDirectoryResponse(
@@ -253,7 +312,6 @@ const SignatureValidationStatus = {
 type SignatureValidationStatus = string;
 
 async function verifySignature(
-	env: Env,
 	request: Request
 ): Promise<SignatureValidationStatus> {
 	if (request.headers.get("Signature") === null) {
@@ -264,12 +322,9 @@ async function verifySignature(
 		await verify(request, {
 			async resolver(candidate) {
 				const entry = candidate.signatureAgent;
-				const directory =
-					entry === undefined ||
-					new URL(entry.uri).origin === new URL(env.SIGNATURE_AGENT).origin
-						? await getExampleDirectory()
-						: await fetchDirectory(entry);
-				return resolveVerifier(directory, candidate.keyid);
+				return entry === undefined
+					? resolveVerifier(await getExampleDirectory(), candidate.keyid)
+					: fetchDirectory(entry, candidate.keyid);
 			},
 		});
 	} catch (e) {
@@ -297,7 +352,7 @@ export default {
 		}
 
 		if (url.pathname.startsWith("/v0/api/verify")) {
-			const status = await verifySignature(env, request);
+			const status = await verifySignature(request);
 			return new Response(status);
 		}
 
@@ -335,7 +390,7 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
-		const status = await verifySignature(env, request);
+		const status = await verifySignature(request);
 		switch (status) {
 			case SignatureValidationStatus.NEUTRAL:
 				return new Response(neutralHTML, {
@@ -355,7 +410,7 @@ export default {
 	async scheduled(ctx, env, ectx) {
 		void ectx;
 		const headers = {
-			"Signature-Agent": `sig1="${env.SIGNATURE_AGENT}";type=directory`,
+			"Signature-Agent": `sig1="${signatureAgentOrigin(env)}${HTTP_MESSAGE_SIGNATURES_DIRECTORY}"`,
 		};
 		const request = new Request(env.TARGET_URL, { headers });
 		const created = new Date(ctx.scheduledTime);

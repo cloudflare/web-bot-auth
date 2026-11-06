@@ -101,7 +101,7 @@ function validateDirectoryURL(url: string): URL | string {
 	return parsed;
 }
 
-async function readTextWithLimit(
+export async function readTextWithLimit(
 	response: Response,
 	byteLimit: number
 ): Promise<string> {
@@ -110,7 +110,7 @@ async function readTextWithLimit(
 	}
 
 	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
+	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 	let bytesRead = 0;
 	let text = "";
 
@@ -123,7 +123,7 @@ async function readTextWithLimit(
 		bytesRead += result.value.byteLength;
 		if (bytesRead > byteLimit) {
 			await reader.cancel();
-			throw new Error("Directory response is too large");
+			throw new RangeError("Directory response is too large");
 		}
 		text += decoder.decode(result.value, { stream: true });
 	}
@@ -189,8 +189,13 @@ export async function proxyDirectoryRequest(
 	let text: string;
 	try {
 		text = await readTextWithLimit(response, DIRECTORY_RESPONSE_MAX_BYTES);
-	} catch {
-		return errorResponse("Directory response is too large", 502);
+	} catch (error) {
+		return errorResponse(
+			error instanceof RangeError
+				? "Directory response is too large"
+				: "Directory response could not be read as UTF-8",
+			502
+		);
 	}
 
 	return new Response(text, {
