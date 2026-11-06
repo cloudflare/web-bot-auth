@@ -1,3 +1,14 @@
+//! A generic RFC 9421 compliant HTTP message signatures implementation.
+//!
+//! This implements the underlying core of web-bot-auth. It does not enforce any web-bot-auth contracts,
+//! and instead focuses on the mechanics of generic parsing, picking and verifying a signature.
+//!
+//!
+//! ## Features
+//!
+//! - **Message Signing**: Generate arbitrary HTTP message signatures using Ed25519 cryptography
+//! - **Message Verification**: Verify arbitrary signed HTTP messages against public keys
+
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 use std::time::Duration;
