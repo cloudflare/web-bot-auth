@@ -25,7 +25,7 @@ please open a feature request separately for each library, stating the final goa
    - The [registry and signature agent card](https://www.ietf.org/archive/id/draft-meunier-webbotauth-registry-04.html)
 
 1. Verifiers require paths for graceful migration, while signers don't. Changes in verification logic, such as what is considered a valid
-   signed message, should use feature gates, deperecation warnings, or similar and outline a stable deprecation path. A method may be removed
+   signed message, should use feature gates, deprecation warnings, or similar and outline a stable deprecation path. A method may be removed
    if it has been deprecated for at least two minor versions before 1.0, and one major version after 1.0.
 2. We support WASM as a compilation target for Rust. Your changes should be tested to work on `wasm32-unknown-unknown` in addiion to local environments.
 3. AI-generated pull requests are accepted, but, where possible, use your own voice to describe the issue and your plan.
