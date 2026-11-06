@@ -313,6 +313,9 @@ impl WebBotAuthVerifier {
     /// from `keyring` will be sourced from the `keyid` parameter
     /// within the message.
     ///
+    /// Sourced `keyid` parameters that use shared HMAC will not be verified
+    /// per https://www.ietf.org/archive/id/draft-ietf-webbotauth-httpsig-protocol-01.html#section-6.4
+    ///
     /// This fails closed when `created` is in the future or `expires` is in the
     /// past (or unparsable), returning [`WebBotAuthError::SignatureCreatedInFuture`]
     /// or [`WebBotAuthError::SignatureIsExpired`] before cryptographic verification.
@@ -342,6 +345,9 @@ impl WebBotAuthVerifier {
                 WebBotAuthError::SignatureIsExpired,
             ));
         }
+
+        self.reject_shared_hmac()?;
+
         self.message_verifier.verify(keyring, key_id)
     }
 
@@ -358,6 +364,7 @@ impl WebBotAuthVerifier {
         keyring: &KeyRing,
         key_id: Option<String>,
     ) -> Result<AdvisoryVerification, ImplementationError> {
+        self.reject_shared_hmac()?;
         let advisory = self
             .message_verifier
             .parsed
@@ -367,6 +374,22 @@ impl WebBotAuthVerifier {
             .possibly_insecure(|_| false);
         let timing = self.message_verifier.verify(keyring, key_id)?;
         Ok(AdvisoryVerification { timing, advisory })
+    }
+
+    /// Refuse to verify a message if it specifies a shared HMAC auth method. This is unique to
+    /// Web Bot Auth and is not enforced for generic HTTP message signatures. While shared HMAC is
+    /// not supported in underlying keyrings today, this enforces the contract at the Web Bot Auth
+    /// level rather than render the generic HTTP message signatures library non-compliant.
+    fn reject_shared_hmac(&self) -> Result<(), ImplementationError> {
+        let parameters = &self.message_verifier.parsed.base.parameters;
+        if parameters.raw.get("alg").is_some()
+            && parameters.details.algorithm.as_ref() == Some(&Algorithm::HmacSha256)
+        {
+            return Err(ImplementationError::UnsupportedAlgorithm(
+                Algorithm::HmacSha256,
+            ));
+        }
+        Ok(())
     }
 
     /// Retrieve the contents of the chosen signature and signature input label for
@@ -551,6 +574,103 @@ mod tests {
         let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
         assert!(outcome.advisory.is_created_in_future.unwrap_or(false));
         assert!(!outcome.advisory.is_expired.unwrap_or(true));
+    }
+
+    #[test]
+    fn test_verify_rejects_shared_hmac() {
+        use ed25519_dalek::{Signer, SigningKey};
+        use sfv::{self, FieldType};
+        use time::UtcDateTime;
+
+        struct SharedHmacMsg {
+            signature_input: String,
+            signature_header: String,
+        }
+
+        impl SignedMessage for SharedHmacMsg {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec![self.signature_header.clone()];
+                        }
+                        if name == "signature-input" {
+                            return vec![self.signature_input.clone()];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+            0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
+            0x2b, 0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd,
+            0xce, 0x43, 0xd1, 0xbb,
+        ];
+        let private_key: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
+            0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c,
+            0x0e, 0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f,
+            0x6a, 0x7d, 0x29, 0xc5,
+        ];
+
+        // The signature is genuine and within the valid window, so the shared
+        // HMAC declaration is the only reason verification must be refused.
+        let created = UtcDateTime::now().unix_timestamp();
+        let expires = created + 3600;
+        let params = format!(
+            r#"("@authority");created={created};keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="hmac-sha256";expires={expires};nonce="shared-hmac-test";tag="web-bot-auth""#
+        );
+        let base = format!("\"@authority\": example.com\n\"@signature-params\": {params}");
+        let signing_key = SigningKey::try_from(&private_key[..]).expect("test key length");
+        let signature_header = sfv::Item {
+            bare_item: sfv::BareItem::ByteSequence(
+                signing_key.sign(base.as_bytes()).to_bytes().to_vec(),
+            ),
+            params: sfv::Parameters::new(),
+        }
+        .serialize();
+
+        let msg = SharedHmacMsg {
+            signature_input: format!("sig1={params}"),
+            signature_header: format!("sig1={signature_header}"),
+        };
+
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
+            public_key.to_vec(),
+        );
+
+        let verifier = WebBotAuthVerifier::parse(&msg).unwrap();
+        let advisory = verifier
+            .get_parsed_label()
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
+        assert!(!advisory.is_created_in_future.unwrap_or(true));
+        assert!(!advisory.is_expired.unwrap_or(true));
+
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::UnsupportedAlgorithm(Algorithm::HmacSha256)
+        ));
+
+        // The opt-in path enforces the same contract despite skipping the
+        // expiry window checks.
+        let verifier = WebBotAuthVerifier::parse(&msg).unwrap();
+        let err = verifier.verify_ignore_expiry(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::UnsupportedAlgorithm(Algorithm::HmacSha256)
+        ));
     }
 
     #[test]
