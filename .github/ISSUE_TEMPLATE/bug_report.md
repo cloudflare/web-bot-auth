@@ -15,11 +15,11 @@ A clear and concise description of the bug.
 
 Which of the accepted bug forms does this fall under? (See [CONTRIBUTING.md](https://github.com/cloudflare/web-bot-auth/blob/main/CONTRIBUTING.md))
 
-- [ ] A library does not implement the Web Bot Auth specification faithfully
+- [ ] A library does not implement the [Web Bot Auth specification](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/) faithfully
 - [ ] A provided example does not work
 - [ ] A vulnerability is present
 
-## Affected library
+## Affected component
 
 - [ ] Rust crate `web-bot-auth`
 - [ ] Rust crate `http-signature-directory`
