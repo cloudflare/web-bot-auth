@@ -33,7 +33,7 @@ use keyring::{Algorithm, KeyRing};
 use message_signatures::{
     MessageVerifier, ParsedLabel, SecurityAdvisory, SignatureTiming, SignedMessage,
 };
-use registry::{SignatureAgentDiscoveryType, parse_signature_agent_header};
+use registry::{SignatureAgentDiscoveryType, parse_signature_agent_headers};
 
 /// Errors that may be thrown by this module.
 #[derive(Debug)]
@@ -259,32 +259,18 @@ impl WebBotAuthVerifier {
                 })
             };
 
-        // Merge dictionaries before validation so ignored members still shadow earlier values.
-        // Keep separate legacy sf-string field lines for backwards compatibility.
-        let headers = if signature_agents
-            .iter()
-            .all(|header| header.trim_start().starts_with('"'))
-        {
-            signature_agents.clone()
-        } else {
-            vec![signature_agents.join(", ")]
-        };
+        let header = parse_signature_agent_headers(&signature_agents).map_err(|error| {
+            ImplementationError::ParsingError(format!("Failed to parse `Signature-Agent`: {error}"))
+        })?;
+        let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
         let mut parsed_directories = Vec::new();
-        for header in headers {
-            let header = parse_signature_agent_header(&header).map_err(|error| {
-                ImplementationError::ParsingError(format!(
-                    "Failed to parse `Signature-Agent`: {error}"
-                ))
-            })?;
-            let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
-            for entry in header {
-                if signature_agent_key
-                    .as_ref()
-                    .is_none_or(|key| entry.label == *key)
-                    && let Some(link) = parse_link(&entry.uri, &entry.discovery_type, legacy)
-                {
-                    parsed_directories.push(link);
-                }
+        for entry in header {
+            if signature_agent_key
+                .as_ref()
+                .is_none_or(|key| entry.label == *key)
+                && let Some(link) = parse_link(&entry.uri, &entry.discovery_type, legacy)
+            {
+                parsed_directories.push(link);
             }
         }
         if !signature_agents.is_empty() && parsed_directories.is_empty() {
@@ -456,7 +442,8 @@ mod tests {
     }
 
     #[test]
-    fn signature_agent_dictionary_is_merged_before_validation() {
+    fn later_signature_agent_members_replace_earlier_values() {
+        // A later member replaces the earlier URI even when its parameters make it unusable.
         for components in [r#""signature-agent";key="agent1""#, r#""signature-agent""#] {
             let message = SignatureAgentTestVector {
                 components,

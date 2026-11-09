@@ -228,6 +228,38 @@ fn parse_signature_agent_dictionary(
     let dictionary = sfv::Parser::new(header)
         .parse_dictionary::<sfv::Dictionary>()
         .map_err(RegistryError::StructuredFields)?;
+    signature_agent_dictionary_entries(dictionary)
+}
+
+pub(crate) fn parse_signature_agent_headers(
+    headers: &[String],
+) -> Result<SignatureAgentHeader, RegistryError> {
+    if headers
+        .iter()
+        .all(|header| header.trim_start().starts_with('"'))
+    {
+        let mut entries = Vec::new();
+        for header in headers {
+            entries.extend(parse_signature_agent_legacy(header)?);
+        }
+        return Ok(SignatureAgentHeader::Legacy { entries });
+    }
+
+    let mut dictionary = sfv::Dictionary::new();
+    for header in headers {
+        dictionary = sfv::Parser::new(header)
+            .parse_dictionary_with_visitor(dictionary)
+            .map_err(RegistryError::StructuredFields)?;
+    }
+    // Resolve duplicate labels before ignoring unsupported members, never revive an older URI.
+    Ok(SignatureAgentHeader::Current {
+        entries: signature_agent_dictionary_entries(dictionary)?,
+    })
+}
+
+fn signature_agent_dictionary_entries(
+    dictionary: sfv::Dictionary,
+) -> Result<Vec<SignatureAgentEntry>, RegistryError> {
     if dictionary.is_empty() {
         return Err(RegistryError::Invalid(
             "Signature-Agent header must not be empty".into(),
@@ -500,6 +532,39 @@ mod tests {
     fn rejects_empty_signature_agent() {
         let error = parse_signature_agent_header("").unwrap_err().to_string();
         assert!(error.contains("must not be empty"));
+    }
+
+    #[test]
+    fn parses_signature_agent_field_lines_without_reviving_replaced_members() {
+        let headers = vec![
+            r#"a="https://old.example", b="http://replaced.example""#.into(),
+            r#"a="https://ignored.example";unknown, b="https://new.example""#.into(),
+        ];
+        let parsed = parse_signature_agent_headers(&headers).unwrap();
+        assert_eq!(
+            parsed.entries(),
+            &[SignatureAgentEntry {
+                label: "b".into(),
+                uri: "https://new.example".into(),
+                discovery_type: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn rejects_mixed_legacy_and_dictionary_field_lines() {
+        for headers in [
+            vec![
+                r#""https://legacy.example""#.into(),
+                r#"a="https://current.example""#.into(),
+            ],
+            vec![
+                r#"a="https://current.example""#.into(),
+                r#""https://legacy.example""#.into(),
+            ],
+        ] {
+            assert!(parse_signature_agent_headers(&headers).is_err());
+        }
     }
 
     #[test]
