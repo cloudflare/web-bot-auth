@@ -77,8 +77,9 @@ uv run black .
 
 This software has not been audited. Please use at your sole discretion.
 
-Cross-origin redirects are rejected to prevent leaking signed authentication headers,
-including when using `--follow`. Same-origin redirects remain supported.
+Signed authentication headers are stripped before following cross-origin redirects.
+Same-origin redirects retain them. Without `--follow`, redirect responses are returned
+normally.
 
 ## License
 
