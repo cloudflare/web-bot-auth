@@ -77,6 +77,9 @@ uv run black .
 
 This software has not been audited. Please use at your sole discretion.
 
+Cross-origin redirects are rejected to prevent leaking signed authentication headers,
+including when using `--follow`. Same-origin redirects remain supported.
+
 ## License
 
 This project is under the Apache 2.0 license.
