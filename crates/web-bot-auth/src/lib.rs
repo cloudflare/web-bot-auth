@@ -33,7 +33,7 @@ use keyring::{Algorithm, KeyRing};
 use message_signatures::{
     MessageVerifier, ParsedLabel, SecurityAdvisory, SignatureTiming, SignedMessage,
 };
-use registry::{SignatureAgentDiscoveryType, parse_signature_agent_header};
+use registry::{SignatureAgentDiscoveryType, parse_signature_agent_headers};
 
 /// Errors that may be thrown by this module.
 #[derive(Debug)]
@@ -217,6 +217,9 @@ impl WebBotAuthVerifier {
                             item.bare_item
                                 .as_string()
                                 .is_some_and(|i| i == sfv::StringRef::constant("signature-agent"))
+                                && item.params.iter().all(|(key, value)| {
+                                    key.as_str() == "key" && value.as_string().is_some()
+                                })
                         })
                     } else {
                         true
@@ -224,16 +227,20 @@ impl WebBotAuthVerifier {
             })?;
 
         let mut signature_agent_key: Option<String> = None;
-        'outer_loop: for (component, _) in message_verifier.parsed.base.components.iter() {
+        for (component, _) in message_verifier.parsed.base.components.iter() {
             if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component
                 && name == "signature-agent"
+                && parameters
+                    .0
+                    .iter()
+                    .all(|parameter| matches!(parameter, HTTPFieldParameters::Key(_)))
             {
                 for parameter in parameters.0.iter() {
                     if let HTTPFieldParameters::Key(key) = parameter {
                         signature_agent_key = Some(key.clone());
-                        break 'outer_loop;
                     }
                 }
+                break;
             }
         }
 
@@ -252,47 +259,25 @@ impl WebBotAuthVerifier {
                 })
             };
 
-        let parsed_directories = match signature_agent_key {
-            Some(key) => signature_agents
-                .iter()
-                .map(|header| {
-                    parse_signature_agent_header(header).map_err(|error| {
-                        ImplementationError::ParsingError(format!(
-                            "Failed to parse `Signature-Agent`: {error}"
-                        ))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flat_map(|header| {
-                    header.into_iter().filter_map(|entry| {
-                        if entry.label == key {
-                            parse_link(&entry.uri, &entry.discovery_type, false)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .collect(),
-            None => signature_agents
-                .iter()
-                .map(|header| {
-                    parse_signature_agent_header(header).map_err(|error| {
-                        ImplementationError::ParsingError(format!(
-                            "Failed to parse `Signature-Agent`: {error}"
-                        ))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flat_map(|header| {
-                    let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
-                    header.into_iter().filter_map(move |entry| {
-                        parse_link(&entry.uri, &entry.discovery_type, legacy)
-                    })
-                })
-                .collect(),
-        };
+        let header = parse_signature_agent_headers(&signature_agents).map_err(|error| {
+            ImplementationError::ParsingError(format!("Failed to parse `Signature-Agent`: {error}"))
+        })?;
+        let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
+        let mut parsed_directories = Vec::new();
+        for entry in header {
+            if signature_agent_key
+                .as_ref()
+                .is_none_or(|key| entry.label == *key)
+                && let Some(link) = parse_link(&entry.uri, &entry.discovery_type, legacy)
+            {
+                parsed_directories.push(link);
+            }
+        }
+        if !signature_agents.is_empty() && parsed_directories.is_empty() {
+            return Err(ImplementationError::ParsingError(
+                "Signed `Signature-Agent` resolved to no supported discovery URIs".into(),
+            ));
+        }
 
         let web_bot_auth_verifier = Self {
             message_verifier,
@@ -429,6 +414,117 @@ mod tests {
                 _ => vec![],
             }
         }
+    }
+
+    struct SignatureAgentTestVector<'a> {
+        components: &'a str,
+        headers: Vec<&'a str>,
+    }
+
+    impl SignedMessage for SignatureAgentTestVector<'_> {
+        fn lookup_component(&self, component: &CoveredComponent) -> Vec<String> {
+            if let CoveredComponent::HTTP(HTTPField { name, .. }) = component {
+                match name.as_str() {
+                    "signature-input" => {
+                        return vec![format!(
+                            r#"sig1=("@authority" {});created=1735689600;expires=1735693200;keyid="test";tag="web-bot-auth""#,
+                            self.components
+                        )];
+                    }
+                    "signature-agent" => {
+                        return self.headers.iter().map(|s| s.to_string()).collect();
+                    }
+                    _ => {}
+                }
+            }
+            StandardTestVector {}.lookup_component(component)
+        }
+    }
+
+    #[test]
+    fn later_signature_agent_members_replace_earlier_values() {
+        // A later member replaces the earlier URI even when its parameters make it unusable.
+        for components in [r#""signature-agent";key="agent1""#, r#""signature-agent""#] {
+            let message = SignatureAgentTestVector {
+                components,
+                headers: vec![
+                    r#"agent1="https://unsigned.example""#,
+                    r#"agent1="https://signed.example""#,
+                ],
+            };
+            let verifier = WebBotAuthVerifier::parse(&message).unwrap();
+            assert_eq!(
+                verifier.get_signature_agents(),
+                &vec![SignatureAgentLink::Directory(
+                    "https://signed.example".into()
+                )]
+            );
+
+            let ignored = SignatureAgentTestVector {
+                headers: vec![
+                    message.headers[0],
+                    r#"agent1="https://signed.example";unknown"#,
+                ],
+                ..message
+            };
+            assert!(WebBotAuthVerifier::parse(&ignored).is_err());
+
+            let combined = SignatureAgentTestVector {
+                components,
+                headers: vec![
+                    r#"agent1="https://unsigned.example", agent1="https://signed.example""#,
+                ],
+            };
+            assert_eq!(
+                WebBotAuthVerifier::parse(&combined)
+                    .unwrap()
+                    .get_signature_agents(),
+                verifier.get_signature_agents()
+            );
+        }
+    }
+
+    #[test]
+    fn signature_agent_requires_matching_header_coverage() {
+        for components in [
+            r#""signature-agent";tr"#,
+            r#""signature-agent";req"#,
+            r#""signature-agent";key="agent1";tr"#,
+            r#""signature-agent";key="agent1";req"#,
+            r#""signature-agent";key="missing""#,
+            r#""signature-agent";key=?1"#,
+        ] {
+            let message = SignatureAgentTestVector {
+                components,
+                headers: vec![r#"agent1="https://example.com""#],
+            };
+            assert!(WebBotAuthVerifier::parse(&message).is_err(), "{components}");
+        }
+    }
+
+    #[test]
+    fn signature_agent_ignores_uncovered_members() {
+        let message = SignatureAgentTestVector {
+            components: r#""signature-agent";tr;key="agent2" "signature-agent";key="agent1""#,
+            headers: vec![r#"agent1="https://signed.example", agent2="https://other.example""#],
+        };
+        assert_eq!(
+            WebBotAuthVerifier::parse(&message)
+                .unwrap()
+                .get_signature_agents(),
+            &vec![SignatureAgentLink::Directory(
+                "https://signed.example".into()
+            )]
+        );
+
+        let ignored = SignatureAgentTestVector {
+            headers: vec![
+                message.headers[0],
+                r#"agent1="https://ignored.example";unknown"#,
+            ],
+            ..message
+        };
+        assert!(WebBotAuthVerifier::parse(&ignored).is_err());
     }
 
     #[test]
