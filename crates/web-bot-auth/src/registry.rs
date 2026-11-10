@@ -231,9 +231,14 @@ fn parse_signature_agent_dictionary(
     signature_agent_dictionary_entries(dictionary)
 }
 
+/// Parse dictionary field lines as their comma-joined value, without copying the headers.
+/// Later members replace earlier ones before validation. Ignoring an unsupported replacement
+/// must not revive an earlier URI that the selected dictionary member no longer covers.
+/// Separate legacy sf-string field lines remain supported for backwards compatibility.
 pub(crate) fn parse_signature_agent_headers(
     headers: &[String],
 ) -> Result<SignatureAgentHeader, RegistryError> {
+    // Dictionary keys cannot start with a quote, only legacy sf-strings can.
     if headers
         .iter()
         .all(|header| header.trim_start().starts_with('"'))
@@ -251,7 +256,6 @@ pub(crate) fn parse_signature_agent_headers(
             .parse_dictionary_with_visitor(dictionary)
             .map_err(RegistryError::StructuredFields)?;
     }
-    // Resolve duplicate labels before ignoring unsupported members, never revive an older URI.
     Ok(SignatureAgentHeader::Current {
         entries: signature_agent_dictionary_entries(dictionary)?,
     })
