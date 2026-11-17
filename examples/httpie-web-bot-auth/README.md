@@ -77,6 +77,10 @@ uv run black .
 
 This software has not been audited. Please use at your sole discretion.
 
+Signed authentication headers are stripped before following cross-origin redirects.
+Same-origin redirects retain them. Without `--follow`, redirect responses are returned
+normally.
+
 ## License
 
 This project is under the Apache 2.0 license.

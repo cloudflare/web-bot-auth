@@ -7,10 +7,28 @@ from httpie.plugins import TransportPlugin
 import json
 import os
 from requests.adapters import HTTPAdapter
+from requests import Response
 import typing as t
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 __version__ = "0.1.0"
+
+
+def _strip_redirect_signatures(response: Response, **kwargs: object) -> Response:
+    if response.is_redirect:
+        origins = []
+        for url in (response.url, urljoin(response.url, response.headers["Location"])):
+            parsed = urlparse(url)
+            port = parsed.port
+            if port is None:
+                port = {"http": 80, "https": 443}.get(parsed.scheme)
+            origins.append((parsed.scheme, parsed.hostname, port))
+        if origins[0] != origins[1]:
+            assert response.request is not None
+            # Requests copies these headers after response hooks, even without follow.
+            for header in ("Signature", "Signature-Input", "Signature-Agent"):
+                response.request.headers.pop(header, None)
+    return response
 
 
 class WebBotAuthAdapter(HTTPAdapter):
@@ -47,6 +65,8 @@ class WebBotAuthAdapter(HTTPAdapter):
         # set extra headers
         for k, v in headers.items():
             request.headers[k] = v
+
+        request.register_hook("response", _strip_redirect_signatures)
 
         # Proceed with sending the request by calling the parent method
         return super().send(request, **kwargs)

@@ -1,3 +1,4 @@
+//! Implementation for a keyring capable of storing keys for signature verification and generation.
 use std::collections::HashMap;
 
 use base64::{Engine as _, engine::general_purpose};

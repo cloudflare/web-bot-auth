@@ -33,7 +33,7 @@ use keyring::{Algorithm, KeyRing};
 use message_signatures::{
     MessageVerifier, ParsedLabel, SecurityAdvisory, SignatureTiming, SignedMessage,
 };
-use registry::{SignatureAgentDiscoveryType, parse_signature_agent_header};
+use registry::{SignatureAgentDiscoveryType, parse_signature_agent_headers};
 
 /// Errors that may be thrown by this module.
 #[derive(Debug)]
@@ -217,6 +217,9 @@ impl WebBotAuthVerifier {
                             item.bare_item
                                 .as_string()
                                 .is_some_and(|i| i == sfv::StringRef::constant("signature-agent"))
+                                && item.params.iter().all(|(key, value)| {
+                                    key.as_str() == "key" && value.as_string().is_some()
+                                })
                         })
                     } else {
                         true
@@ -224,16 +227,20 @@ impl WebBotAuthVerifier {
             })?;
 
         let mut signature_agent_key: Option<String> = None;
-        'outer_loop: for (component, _) in message_verifier.parsed.base.components.iter() {
+        for (component, _) in message_verifier.parsed.base.components.iter() {
             if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component
                 && name == "signature-agent"
+                && parameters
+                    .0
+                    .iter()
+                    .all(|parameter| matches!(parameter, HTTPFieldParameters::Key(_)))
             {
                 for parameter in parameters.0.iter() {
                     if let HTTPFieldParameters::Key(key) = parameter {
                         signature_agent_key = Some(key.clone());
-                        break 'outer_loop;
                     }
                 }
+                break;
             }
         }
 
@@ -252,47 +259,25 @@ impl WebBotAuthVerifier {
                 })
             };
 
-        let parsed_directories = match signature_agent_key {
-            Some(key) => signature_agents
-                .iter()
-                .map(|header| {
-                    parse_signature_agent_header(header).map_err(|error| {
-                        ImplementationError::ParsingError(format!(
-                            "Failed to parse `Signature-Agent`: {error}"
-                        ))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flat_map(|header| {
-                    header.into_iter().filter_map(|entry| {
-                        if entry.label == key {
-                            parse_link(&entry.uri, &entry.discovery_type, false)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .collect(),
-            None => signature_agents
-                .iter()
-                .map(|header| {
-                    parse_signature_agent_header(header).map_err(|error| {
-                        ImplementationError::ParsingError(format!(
-                            "Failed to parse `Signature-Agent`: {error}"
-                        ))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flat_map(|header| {
-                    let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
-                    header.into_iter().filter_map(move |entry| {
-                        parse_link(&entry.uri, &entry.discovery_type, legacy)
-                    })
-                })
-                .collect(),
-        };
+        let header = parse_signature_agent_headers(&signature_agents).map_err(|error| {
+            ImplementationError::ParsingError(format!("Failed to parse `Signature-Agent`: {error}"))
+        })?;
+        let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
+        let mut parsed_directories = Vec::new();
+        for entry in header {
+            if signature_agent_key
+                .as_ref()
+                .is_none_or(|key| entry.label == *key)
+                && let Some(link) = parse_link(&entry.uri, &entry.discovery_type, legacy)
+            {
+                parsed_directories.push(link);
+            }
+        }
+        if !signature_agents.is_empty() && parsed_directories.is_empty() {
+            return Err(ImplementationError::ParsingError(
+                "Signed `Signature-Agent` resolved to no supported discovery URIs".into(),
+            ));
+        }
 
         let web_bot_auth_verifier = Self {
             message_verifier,
@@ -312,6 +297,9 @@ impl WebBotAuthVerifier {
     /// If `key_id` is not supplied, a key ID to fetch the public key
     /// from `keyring` will be sourced from the `keyid` parameter
     /// within the message.
+    ///
+    /// Sourced `keyid` parameters that use shared HMAC will not be verified
+    /// per https://www.ietf.org/archive/id/draft-ietf-webbotauth-httpsig-protocol-01.html#section-6.4
     ///
     /// This fails closed when `created` is in the future or `expires` is in the
     /// past (or unparsable), returning [`WebBotAuthError::SignatureCreatedInFuture`]
@@ -342,6 +330,9 @@ impl WebBotAuthVerifier {
                 WebBotAuthError::SignatureIsExpired,
             ));
         }
+
+        self.reject_shared_hmac()?;
+
         self.message_verifier.verify(keyring, key_id)
     }
 
@@ -358,6 +349,7 @@ impl WebBotAuthVerifier {
         keyring: &KeyRing,
         key_id: Option<String>,
     ) -> Result<AdvisoryVerification, ImplementationError> {
+        self.reject_shared_hmac()?;
         let advisory = self
             .message_verifier
             .parsed
@@ -367,6 +359,22 @@ impl WebBotAuthVerifier {
             .possibly_insecure(|_| false);
         let timing = self.message_verifier.verify(keyring, key_id)?;
         Ok(AdvisoryVerification { timing, advisory })
+    }
+
+    /// Refuse to verify a message if it specifies a shared HMAC auth method. This is unique to
+    /// Web Bot Auth and is not enforced for generic HTTP message signatures. While shared HMAC is
+    /// not supported in underlying keyrings today, this enforces the contract at the Web Bot Auth
+    /// level rather than render the generic HTTP message signatures library non-compliant.
+    fn reject_shared_hmac(&self) -> Result<(), ImplementationError> {
+        let parameters = &self.message_verifier.parsed.base.parameters;
+        if parameters.raw.get("alg").is_some()
+            && parameters.details.algorithm.as_ref() == Some(&Algorithm::HmacSha256)
+        {
+            return Err(ImplementationError::UnsupportedAlgorithm(
+                Algorithm::HmacSha256,
+            ));
+        }
+        Ok(())
     }
 
     /// Retrieve the contents of the chosen signature and signature input label for
@@ -406,6 +414,117 @@ mod tests {
                 _ => vec![],
             }
         }
+    }
+
+    struct SignatureAgentTestVector<'a> {
+        components: &'a str,
+        headers: Vec<&'a str>,
+    }
+
+    impl SignedMessage for SignatureAgentTestVector<'_> {
+        fn lookup_component(&self, component: &CoveredComponent) -> Vec<String> {
+            if let CoveredComponent::HTTP(HTTPField { name, .. }) = component {
+                match name.as_str() {
+                    "signature-input" => {
+                        return vec![format!(
+                            r#"sig1=("@authority" {});created=1735689600;expires=1735693200;keyid="test";tag="web-bot-auth""#,
+                            self.components
+                        )];
+                    }
+                    "signature-agent" => {
+                        return self.headers.iter().map(|s| s.to_string()).collect();
+                    }
+                    _ => {}
+                }
+            }
+            StandardTestVector {}.lookup_component(component)
+        }
+    }
+
+    #[test]
+    fn later_signature_agent_members_replace_earlier_values() {
+        // A later member replaces the earlier URI even when its parameters make it unusable.
+        for components in [r#""signature-agent";key="agent1""#, r#""signature-agent""#] {
+            let message = SignatureAgentTestVector {
+                components,
+                headers: vec![
+                    r#"agent1="https://unsigned.example""#,
+                    r#"agent1="https://signed.example""#,
+                ],
+            };
+            let verifier = WebBotAuthVerifier::parse(&message).unwrap();
+            assert_eq!(
+                verifier.get_signature_agents(),
+                &vec![SignatureAgentLink::Directory(
+                    "https://signed.example".into()
+                )]
+            );
+
+            let ignored = SignatureAgentTestVector {
+                headers: vec![
+                    message.headers[0],
+                    r#"agent1="https://signed.example";unknown"#,
+                ],
+                ..message
+            };
+            assert!(WebBotAuthVerifier::parse(&ignored).is_err());
+
+            let combined = SignatureAgentTestVector {
+                components,
+                headers: vec![
+                    r#"agent1="https://unsigned.example", agent1="https://signed.example""#,
+                ],
+            };
+            assert_eq!(
+                WebBotAuthVerifier::parse(&combined)
+                    .unwrap()
+                    .get_signature_agents(),
+                verifier.get_signature_agents()
+            );
+        }
+    }
+
+    #[test]
+    fn signature_agent_requires_matching_header_coverage() {
+        for components in [
+            r#""signature-agent";tr"#,
+            r#""signature-agent";req"#,
+            r#""signature-agent";key="agent1";tr"#,
+            r#""signature-agent";key="agent1";req"#,
+            r#""signature-agent";key="missing""#,
+            r#""signature-agent";key=?1"#,
+        ] {
+            let message = SignatureAgentTestVector {
+                components,
+                headers: vec![r#"agent1="https://example.com""#],
+            };
+            assert!(WebBotAuthVerifier::parse(&message).is_err(), "{components}");
+        }
+    }
+
+    #[test]
+    fn signature_agent_ignores_uncovered_members() {
+        let message = SignatureAgentTestVector {
+            components: r#""signature-agent";tr;key="agent2" "signature-agent";key="agent1""#,
+            headers: vec![r#"agent1="https://signed.example", agent2="https://other.example""#],
+        };
+        assert_eq!(
+            WebBotAuthVerifier::parse(&message)
+                .unwrap()
+                .get_signature_agents(),
+            &vec![SignatureAgentLink::Directory(
+                "https://signed.example".into()
+            )]
+        );
+
+        let ignored = SignatureAgentTestVector {
+            headers: vec![
+                message.headers[0],
+                r#"agent1="https://ignored.example";unknown"#,
+            ],
+            ..message
+        };
+        assert!(WebBotAuthVerifier::parse(&ignored).is_err());
     }
 
     #[test]
@@ -551,6 +670,103 @@ mod tests {
         let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
         assert!(outcome.advisory.is_created_in_future.unwrap_or(false));
         assert!(!outcome.advisory.is_expired.unwrap_or(true));
+    }
+
+    #[test]
+    fn test_verify_rejects_shared_hmac() {
+        use ed25519_dalek::{Signer, SigningKey};
+        use sfv::{self, FieldType};
+        use time::UtcDateTime;
+
+        struct SharedHmacMsg {
+            signature_input: String,
+            signature_header: String,
+        }
+
+        impl SignedMessage for SharedHmacMsg {
+            fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
+                match name {
+                    CoveredComponent::HTTP(HTTPField { name, .. }) => {
+                        if name == "signature" {
+                            return vec![self.signature_header.clone()];
+                        }
+                        if name == "signature-input" {
+                            return vec![self.signature_input.clone()];
+                        }
+                        vec![]
+                    }
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
+                        vec!["example.com".to_string()]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        let public_key: [u8; ed25519_dalek::PUBLIC_KEY_LENGTH] = [
+            0x26, 0xb4, 0x0b, 0x8f, 0x93, 0xff, 0xf3, 0xd8, 0x97, 0x11, 0x2f, 0x7e, 0xbc, 0x58,
+            0x2b, 0x23, 0x2d, 0xbd, 0x72, 0x51, 0x7d, 0x08, 0x2f, 0xe8, 0x3c, 0xfb, 0x30, 0xdd,
+            0xce, 0x43, 0xd1, 0xbb,
+        ];
+        let private_key: [u8; ed25519_dalek::SECRET_KEY_LENGTH] = [
+            0x9f, 0x83, 0x62, 0xf8, 0x7a, 0x48, 0x4a, 0x95, 0x4e, 0x6e, 0x74, 0x0c, 0x5b, 0x4c,
+            0x0e, 0x84, 0x22, 0x91, 0x39, 0xa2, 0x0a, 0xa8, 0xab, 0x56, 0xff, 0x66, 0x58, 0x6f,
+            0x6a, 0x7d, 0x29, 0xc5,
+        ];
+
+        // The signature is genuine and within the valid window, so the shared
+        // HMAC declaration is the only reason verification must be refused.
+        let created = UtcDateTime::now().unix_timestamp();
+        let expires = created + 3600;
+        let params = format!(
+            r#"("@authority");created={created};keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="hmac-sha256";expires={expires};nonce="shared-hmac-test";tag="web-bot-auth""#
+        );
+        let base = format!("\"@authority\": example.com\n\"@signature-params\": {params}");
+        let signing_key = SigningKey::try_from(&private_key[..]).expect("test key length");
+        let signature_header = sfv::Item {
+            bare_item: sfv::BareItem::ByteSequence(
+                signing_key.sign(base.as_bytes()).to_bytes().to_vec(),
+            ),
+            params: sfv::Parameters::new(),
+        }
+        .serialize();
+
+        let msg = SharedHmacMsg {
+            signature_input: format!("sig1={params}"),
+            signature_header: format!("sig1={signature_header}"),
+        };
+
+        let mut keyring = KeyRing::default();
+        keyring.import_raw(
+            "poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U".to_string(),
+            Algorithm::Ed25519,
+            public_key.to_vec(),
+        );
+
+        let verifier = WebBotAuthVerifier::parse(&msg).unwrap();
+        let advisory = verifier
+            .get_parsed_label()
+            .base
+            .parameters
+            .details
+            .possibly_insecure(|_| false);
+        assert!(!advisory.is_created_in_future.unwrap_or(true));
+        assert!(!advisory.is_expired.unwrap_or(true));
+
+        let err = verifier.verify(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::UnsupportedAlgorithm(Algorithm::HmacSha256)
+        ));
+
+        // The opt-in path enforces the same contract despite skipping the
+        // expiry window checks.
+        let verifier = WebBotAuthVerifier::parse(&msg).unwrap();
+        let err = verifier.verify_ignore_expiry(&keyring, None).unwrap_err();
+        assert!(matches!(
+            err,
+            ImplementationError::UnsupportedAlgorithm(Algorithm::HmacSha256)
+        ));
     }
 
     #[test]
