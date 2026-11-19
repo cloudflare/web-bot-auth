@@ -323,6 +323,12 @@ function isNativeResponse(message: SignatureMessage): message is Response {
   return typeof Response !== "undefined" && message instanceof Response;
 }
 
+// RFC 9110 Section 7.1: the target URI excludes the fragment.
+function withoutFragment(uri: string): string {
+  const fragment = uri.indexOf("#");
+  return fragment === -1 ? uri : uri.slice(0, fragment);
+}
+
 function snapshotRequest(
   message: Request | RequestDescriptor
 ): RequestSnapshot {
@@ -330,7 +336,7 @@ function snapshotRequest(
     return Object.freeze({
       kind: "request",
       method: message.method,
-      targetUri: message.url,
+      targetUri: withoutFragment(message.url),
       fields: fieldsFromHeaders(message.headers),
       trailers: Object.freeze([]),
     });
@@ -452,7 +458,8 @@ function requestTarget(
   readonly query: string;
 } {
   const url = requestUrl(snapshot, name);
-  if (url.hash !== "") {
+  // URL.hash is empty for a bare "#".
+  if (snapshot.targetUri.includes("#")) {
     return fail(
       SignatureErrorCode.InvalidComponent,
       `${name} target URI cannot contain a fragment`
