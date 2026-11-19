@@ -476,6 +476,20 @@ describe("verification policy", () => {
 });
 
 describe("JWK binding", () => {
+  it.each(["Ed25519", "EdDSA"])("accepts Ed25519 JWK alg %s", async (alg) => {
+    const jwk = { ...ed25519Jwk, alg };
+    const signer = await signerFromJWK(jwk);
+    const verifier = await verifierFromJWK(jwk);
+    expect(signer.keyid).toBe((await signerFromJWK(ed25519Jwk)).keyid);
+    const request = await signedRequest(
+      new Request("https://example.com"),
+      signer
+    );
+    await expect(
+      verify(request, { resolver: () => verifier, now })
+    ).resolves.toBeDefined();
+  });
+
   it("rejects conflicting JWK alg", async () => {
     await expect(
       signerFromJWK({ ...ed25519Jwk, alg: "PS512" })
