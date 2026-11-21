@@ -19,12 +19,12 @@
   "license": "Apache-2.0",
   "version": "0.0.0",
   "devDependencies": {
-    "oxlint": "1.93.0",
-    "prettier": "3.10.0",
+    "oxlint": "1.94.0",
+    "prettier": "3.10.1",
     "rimraf": "6.1.4",
     "tsdown": "0.23.7",
     "typescript": "7.0.2",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   },
   "workspaces": [
     "examples/*",
