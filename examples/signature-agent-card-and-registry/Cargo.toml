@@ -15,8 +15,8 @@ categories.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-worker = { version = "0.8", features = ['http'] }
-worker-macros = { version = "0.8", features = ['http'] }
+worker = { version = "0.9", features = ['http'] }
+worker-macros = { version = "0.9", features = ['http'] }
 web-bot-auth = { workspace = true }
 
 ed25519-dalek = "3.0.0"
