@@ -223,7 +223,8 @@ const generateHTML = (status?: boolean) => `<!DOCTYPE html>
       HTTP Message Signatures are a mechanism to create, encode, and verify signatures over components of an HTTP message.
       They are standardised by the IETF in <a href="https://datatracker.ietf.org/doc/html/rfc9421">RFC 9421</a>.
 
-      This website validates the presence of such signature as defined in <a href="https://github.com/thibmeu/http-message-signatures-directory">draft-meunier-webbotauth-httpsig-protocol</a>.
+      This website validates the presence of such signature as defined in <a href="https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/">draft-ietf-webbotauth-httpsig-protocol</a>.
+      It accepts the dictionary form of the Signature-Agent header, and the legacy string form for migration.
     </p>
     <p>
       This website checks for an Ed25519 signature on incoming request. They should be signed by a test public key defined in <a href="https://datatracker.ietf.org/doc/html/rfc9421#name-example-ed25519-test-key">Appendix B.1.4 of RFC 9421</a>.

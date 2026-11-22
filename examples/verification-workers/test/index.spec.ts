@@ -73,6 +73,7 @@ async function fetchValidator(body: Record<string, string>): Promise<Response> {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 describe("/ endpoint", () => {
@@ -271,6 +272,56 @@ describe("/v0/api/verify endpoint", () => {
 				uri,
 				expect.objectContaining({ redirect: "manual" })
 			);
+	});
+
+	// Ed25519 vectors from draft-ietf-webbotauth-httpsig-protocol-01,
+	// Appendix E.2.1 (dictionary Signature-Agent) and E.2.2 (legacy sf-string).
+	// They are signed outside this repo, so they catch a signature base that
+	// sign() and verify() would otherwise agree on.
+	it.each([
+		{
+			name: "dictionary Signature-Agent (E.2.1)",
+			agent: 'sig2="https://signature-agent.test"',
+			input:
+				'sig2=("@authority" "signature-agent";key="sig2");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=4889289600;nonce="n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA==";tag="web-bot-auth"',
+			signature:
+				"sig2=:CGokAoY/FrPpyuzTe1Fb2kLTAH9Idw6qSFd1+D77r1firsMRCxeuLu5e6O+ek3zQgDMAzjiXtLVfqE00xnABCQ==:",
+		},
+		{
+			name: "legacy Signature-Agent (E.2.2)",
+			agent: '"https://signature-agent.test"',
+			input:
+				'sig2=("@authority" "signature-agent");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="e8N7S2MFd/qrd6T2R3tdfAuuANngKI7LFtKYI/vowzk4lAZYadIX6wW25MwG7DCT9RUKAJ0qVkU0mEeLElW1qg==";tag="web-bot-auth"',
+			signature:
+				"sig2=:jdq0SqOwHdyHr9+r5jw3iYZH6aNGKijYp/EstF4RQTQdi5N5YYKrD+mCT1HA1nZDsi6nJKuHxUi/5Syp3rLWBA==:",
+		},
+	])("accepts the draft $name vector", async ({ agent, input, signature }) => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2025-01-01T00:01:00Z"));
+		const uri =
+			"https://signature-agent.test/.well-known/http-message-signatures-directory";
+		const directory = await worker.fetch(
+			new IncomingRequest(uri),
+			env,
+			createExecutionContext()
+		);
+		const fetch = vi.fn(async () => directory.clone());
+		vi.stubGlobal("fetch", fetch);
+
+		const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
+			headers: {
+				"Signature-Agent": agent,
+				"Signature-Input": input,
+				Signature: signature,
+			},
+		});
+		const response = await worker.fetch(request, env, createExecutionContext());
+
+		expect(await response.text()).toBe("valid");
+		expect(fetch).toHaveBeenCalledWith(
+			uri,
+			expect.objectContaining({ redirect: "manual" })
+		);
 	});
 
 	it("rejects a well-known JWK whose kid is not its thumbprint", async () => {
