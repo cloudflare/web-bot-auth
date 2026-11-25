@@ -1344,6 +1344,8 @@ name = "rust-examples"
 version = "0.8.0"
 dependencies = [
  "indexmap",
+ "serde",
+ "serde_json",
  "time",
  "web-bot-auth",
 ]

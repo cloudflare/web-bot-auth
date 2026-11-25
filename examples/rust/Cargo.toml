@@ -25,6 +25,8 @@ path = "verify.rs"
 
 [dependencies]
 indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 time = { workspace = true }
 
 # workspace dependencies
