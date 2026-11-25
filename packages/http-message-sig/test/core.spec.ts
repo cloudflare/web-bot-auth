@@ -743,6 +743,25 @@ describe("verifySignature", () => {
     ).resolves.toMatchObject({ parameters: { keyid, created: 1_618_884_475 } });
   });
 
+  it("checks decimal timestamps only for the selected signature", async () => {
+    const { fields, base } = await signed();
+    const message = replacingFields(
+      descriptorWithSignature(request, fields),
+      `${fields.signature}, other=:AQID:`,
+      `${fields.signatureInput}, other=("@authority");created=-1.0`
+    );
+    const options = {
+      policy: permittedPolicy,
+      resolveVerifier: () => verifierFor(base),
+    };
+    await expect(
+      verifySignature(message, { ...options, label: "sig1" })
+    ).resolves.toMatchObject({ label: "sig1" });
+    await expect(
+      verifySignature(message, { ...options, label: "other" })
+    ).rejects.toMatchObject({ message: "created must be an integer" });
+  });
+
   it("rejects malformed component parameters and equivalent parsed duplicates", async () => {
     const value = await signed();
     for (const signatureInput of [
