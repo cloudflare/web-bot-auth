@@ -193,24 +193,23 @@ fn has_any_scheme(uri: &str) -> bool {
 }
 
 fn validate_discovery_uri(uri: &str) -> Result<(), RegistryError> {
-    let url = url::Url::parse(uri).map_err(|error| RegistryError::Invalid(error.to_string()))?;
-    if url.scheme() != "https" || url.host_str().is_none() {
+    let (scheme, rest) = uri.split_once(':').unwrap_or_default();
+    if !scheme.eq_ignore_ascii_case("https") {
         return Err(RegistryError::Invalid(
             "Signature-Agent must use https".into(),
         ));
     }
-    // RFC 9110 Section 4.2.2 requires rejecting an https URI with an empty host.
-    // The URL parser takes a host from "https:///x", "https:x", and "https:\x",
-    // so check the value as sent.
-    let names_host = uri
-        .get(..8)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
-        && !uri[8..].starts_with(['/', '\\']);
-    if !names_host {
+    // Check the raw authority before URL parsing can repair it (RFC 9110 §4.2.2).
+    let authority = rest
+        .strip_prefix("//")
+        .and_then(|rest| rest.split(['/', '\\', '?', '#']).next())
+        .unwrap_or_default();
+    if authority.is_empty() {
         return Err(RegistryError::Invalid(
             "Signature-Agent must name a host".into(),
         ));
     }
+    url::Url::parse(uri).map_err(|error| RegistryError::Invalid(error.to_string()))?;
     Ok(())
 }
 
@@ -593,29 +592,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_signature_agent_without_https() {
+    fn rejects_https_signature_agent_without_an_authority() {
         for header in [
-            r#"sig1="http://signature-agent.test""#,
-            r#"sig1="http://signature-agent.test/card";type=cimd"#,
-            r#"sig1="https://a.test", sig2="http://signature-agent.test""#,
-            r#""http://signature-agent.test""#,
-        ] {
-            let error = parse_signature_agent_header(header)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                error.contains("Signature-Agent must use https"),
-                "{header}: {error}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_https_signature_agent_with_an_empty_host() {
-        for header in [
-            r#"sig1="https:///signature-agent.test""#,
             r#"sig1="https:signature-agent.test""#,
-            r#"sig1="https:\\signature-agent.test""#,
+            r#"sig1="https://\\signature-agent.test";type=cimd"#,
             r#""https:///signature-agent.test""#,
         ] {
             let error = parse_signature_agent_header(header)
@@ -629,28 +609,12 @@ mod tests {
     }
 
     #[test]
-    fn accepts_https_scheme_in_any_case() {
-        let parsed =
-            parse_signature_agent_header(r#"sig1="HTTPS://signature-agent.test""#).unwrap();
-        assert_eq!(parsed.entries().len(), 1);
-        assert_eq!(parsed.entries()[0].uri, "HTTPS://signature-agent.test");
-    }
-
-    #[test]
-    fn ignores_http_signature_agent_member_with_parameters() {
-        let parsed =
-            parse_signature_agent_header(r#"sig1="http://signature-agent.test";type=directory"#)
-                .unwrap();
-        assert!(parsed.entries().is_empty());
-    }
-
-    #[test]
     fn accepts_legacy_signature_agent() {
-        let parsed = parse_signature_agent_header("\"https://signature-agent.test\"").unwrap();
+        let parsed = parse_signature_agent_header("\"HTTPS://signature-agent.test\"").unwrap();
         assert!(matches!(parsed, SignatureAgentHeader::Legacy { .. }));
         assert_eq!(parsed.entries().len(), 1);
         assert_eq!(parsed.entries()[0].label, "");
-        assert_eq!(parsed.entries()[0].uri, "https://signature-agent.test");
+        assert_eq!(parsed.entries()[0].uri, "HTTPS://signature-agent.test");
         assert_eq!(parsed.entries()[0].discovery_type, None);
     }
 

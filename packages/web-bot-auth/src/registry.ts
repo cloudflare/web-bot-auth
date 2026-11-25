@@ -134,16 +134,14 @@ function triggerValue(value: unknown): "fetcher" | "crawler" | undefined {
 }
 
 function validateDiscoveryURI(uri: string) {
-  const url = new URL(uri);
-  if (url.protocol !== "https:") {
+  if (!/^https:/i.test(uri)) {
     throw new Error("Signature-Agent must use https");
   }
-  // RFC 9110 Section 4.2.2 requires rejecting an https URI with an empty host.
-  // The URL parser takes a host from "https:///x", "https:x", and "https:\x",
-  // so check the value as sent.
-  if (!/^https:\/\/[^/\\]/i.test(uri)) {
+  // Check the raw authority before URL parsing can repair it (RFC 9110 §4.2.2).
+  if (!/^https:\/\/[^/\\?#]/i.test(uri)) {
     throw new Error("Signature-Agent must name a host");
   }
+  new URL(uri);
 }
 
 export function parseSignatureAgentHeader(
