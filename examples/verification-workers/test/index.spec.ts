@@ -24,6 +24,7 @@ import { sign } from "web-bot-auth";
 import { signerFromJWK } from "web-bot-auth/crypto";
 import worker from "../src/index";
 import jwk from "../../rfc9421-keys/ed25519.json" with { type: "json" };
+import draftVectors from "./draft-ietf-webbotauth-httpsig-protocol-01.json" with { type: "json" };
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -278,24 +279,7 @@ describe("/v0/api/verify endpoint", () => {
 	// Appendix E.2.1 (dictionary Signature-Agent) and E.2.2 (legacy sf-string).
 	// They are signed outside this repo, so they catch a signature base that
 	// sign() and verify() would otherwise agree on.
-	it.each([
-		{
-			name: "dictionary Signature-Agent (E.2.1)",
-			agent: 'sig2="https://signature-agent.test"',
-			input:
-				'sig2=("@authority" "signature-agent";key="sig2");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=4889289600;nonce="n9p433xm+NJ3ph3upfBIGmsuwHw387YV7Q/F+6BSpGCVjYCqQw6rznNA8PVVLySrAWsv0hQtFioQb6E1YsauiA==";tag="web-bot-auth"',
-			signature:
-				"sig2=:CGokAoY/FrPpyuzTe1Fb2kLTAH9Idw6qSFd1+D77r1firsMRCxeuLu5e6O+ek3zQgDMAzjiXtLVfqE00xnABCQ==:",
-		},
-		{
-			name: "legacy Signature-Agent (E.2.2)",
-			agent: '"https://signature-agent.test"',
-			input:
-				'sig2=("@authority" "signature-agent");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=1735693200;nonce="e8N7S2MFd/qrd6T2R3tdfAuuANngKI7LFtKYI/vowzk4lAZYadIX6wW25MwG7DCT9RUKAJ0qVkU0mEeLElW1qg==";tag="web-bot-auth"',
-			signature:
-				"sig2=:jdq0SqOwHdyHr9+r5jw3iYZH6aNGKijYp/EstF4RQTQdi5N5YYKrD+mCT1HA1nZDsi6nJKuHxUi/5Syp3rLWBA==:",
-		},
-	])("accepts the draft $name vector", async ({ agent, input, signature }) => {
+	it.each(draftVectors)("accepts the draft $name vector", async (vector) => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2025-01-01T00:01:00Z"));
 		const uri =
@@ -310,9 +294,9 @@ describe("/v0/api/verify endpoint", () => {
 
 		const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
 			headers: {
-				"Signature-Agent": agent,
-				"Signature-Input": input,
-				Signature: signature,
+				"Signature-Agent": vector.signature_agent,
+				"Signature-Input": vector.signature_input,
+				Signature: vector.signature,
 			},
 		});
 		const response = await worker.fetch(request, env, createExecutionContext());
