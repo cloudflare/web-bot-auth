@@ -5,7 +5,7 @@
 
 [crates.io]: https://crates.io/crates/web-bot-auth
 
-A pure Rust implementation of [web-bot-auth](https://github.com/cloudflare/web-bot-auth) as defined by [draft-meunier-webbotauth-httpsig-protocol-00](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/00/).
+A pure Rust implementation of [web-bot-auth](https://github.com/cloudflare/web-bot-auth) as defined by [draft-ietf-webbotauth-httpsig-protocol-01](https://datatracker.ietf.org/doc/html/draft-ietf-webbotauth-httpsig-protocol-01).
 
 ## Table of Contents
 
