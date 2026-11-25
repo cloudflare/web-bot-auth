@@ -680,6 +680,48 @@ describe("verifySignature", () => {
     }
   });
 
+  it.each(["created", "expires"])(
+    "rejects an SF Decimal %s at the signature parameter boundary",
+    async (parameter) => {
+      const fields = {
+        signature: "sig1=:AQID:",
+        signatureInput: `sig1=("@authority"); ${parameter}=1618884500.0`,
+      };
+      await expect(
+        verifySignature(descriptorWithSignature(request, fields), {
+          policy: permittedPolicy,
+          resolveVerifier: () => {
+            throw new Error("unexpected verifier resolution");
+          },
+        })
+      ).rejects.toMatchObject({
+        code: SignatureErrorCode.MalformedField,
+        message: `${parameter} must be an integer`,
+      });
+      expect(() => appendSignature(new Headers(), fields)).toThrow(
+        `${parameter} must be an integer`
+      );
+    }
+  );
+
+  it("does not treat quoted signature parameter content as a timestamp", async () => {
+    const keyid = 'sample",);created=1.0;expires=2.0';
+    const fields = await createSignature(request, {
+      components: ["@authority"],
+      parameters: { keyid, created: 1_618_884_475 },
+      signer: { algorithm: "test-alg", sign: () => new Uint8Array([1]) },
+    });
+    await expect(
+      verifySignature(descriptorWithSignature(request, fields), {
+        policy: permittedPolicy,
+        resolveVerifier: () => ({
+          algorithm: "test-alg",
+          verify: () => true,
+        }),
+      })
+    ).resolves.toMatchObject({ parameters: { keyid, created: 1_618_884_475 } });
+  });
+
   it("rejects malformed component parameters and equivalent parsed duplicates", async () => {
     const value = await signed();
     for (const signatureInput of [

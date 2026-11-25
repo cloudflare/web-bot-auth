@@ -817,6 +817,34 @@ function parseSignatureInputDictionary(input: string): Dictionary {
   return dictionary;
 }
 
+function assertIntegerTimestamps(
+  input: string,
+  dictionary: Dictionary,
+  label?: string
+): void {
+  // The parser represents both SF Integers and Decimals as JS numbers.
+  // Scan the already-parsed dictionary, skipping quoted strings and item parameters.
+  const labels = dictionary.keys();
+  let current = labels.next().value;
+  let signatureParameters = false;
+  for (const [token, name] of input.matchAll(
+    /"(?:[^"\\]|\\.)*"|[,)]|; *(created|expires)=-?\d+\.\d+/g
+  )) {
+    if (token === ",") {
+      current = labels.next().value;
+      signatureParameters = false;
+    } else if (token === ")") {
+      signatureParameters = true;
+    } else if (
+      name !== undefined &&
+      signatureParameters &&
+      (label === undefined || current === label)
+    ) {
+      fail(SignatureErrorCode.MalformedField, `${name} must be an integer`);
+    }
+  }
+}
+
 function matchingLabels(left: Dictionary, right: Dictionary): boolean {
   if (left.size !== right.size) return false;
   for (const label of left.keys()) if (!right.has(label)) return false;
@@ -901,6 +929,7 @@ export function appendSignature(
 ): Headers {
   const newSignatures = parseSignatureDictionary(fields.signature);
   const newInputs = parseSignatureInputDictionary(fields.signatureInput);
+  assertIntegerTimestamps(fields.signatureInput, newInputs);
   if (newSignatures.size === 0 || newInputs.size === 0) {
     fail(SignatureErrorCode.MalformedField, "New signature fields are empty");
   }
@@ -924,6 +953,7 @@ export function appendSignature(
     inputHeader === null
       ? new Map<string, Item | InnerList>()
       : parseSignatureInputDictionary(inputHeader);
+  if (inputHeader !== null) assertIntegerTimestamps(inputHeader, inputs);
   if (!matchingLabels(signatures, inputs)) {
     fail(
       SignatureErrorCode.LabelMismatch,
@@ -1015,6 +1045,7 @@ export async function verifySignature<V extends Verifier>(
   const signatures = parseSignatureDictionary(signatureHeader);
   const inputs = parseSignatureInputDictionary(inputHeader);
   const label = selectedLabel(signatures, inputs, options.label);
+  assertIntegerTimestamps(inputHeader, inputs, label);
   const inputMember = inputs.get(label);
   const signatureMember = signatures.get(label);
   if (

@@ -42,7 +42,7 @@ impl UnsignedMessage for MyThing {
                         "sig1".to_string(),
                     )]),
                 }),
-                r#"sig1="https://myexample.com/.well-known/http-message-signatures-directory""#
+                r#""https://myexample.com/.well-known/http-message-signatures-directory""#
                     .to_string(),
             ),
         ])
