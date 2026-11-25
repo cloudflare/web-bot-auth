@@ -5,30 +5,18 @@ This should help you get ready to contribute to this repo.
 
 ## How to contribute
 
-Before opening a PR, please raise an issue on the main repository and
-confirm the change is one we'll accept.
+Discuss substantial or breaking changes in an issue before opening a PR. Small fixes can go straight to a PR. If an issue already exists, use it.
 
-We accept the following forms of issues:
+Use the issue templates for bugs, feature requests, and questions. Report suspected vulnerabilities [privately](https://github.com/cloudflare/web-bot-auth/security/advisories/new), not in public issues or PRs.
 
-1. _Bug report_: The libraries provided here do not implement the specification faithfully, provided examples do not work, or a vulnerability is present.
-2. _Feature request_: A new feature to support against any library. New API methods, convenience features, or new behaviour belongs here.
-3. _Questions_: Clarification on operations or best path forward.
-
-For interop issues - where the Rust and Typescript libraries differ in their behaviour, but do not violate the Web Bot Auth specification -
-please open a feature request separately for each library, stating the final goal.
+For Rust and TypeScript interoperability issues, open one issue describing the desired behavior in both libraries. Split follow-up work only if it needs separate tracking.
 
 ## Principles for contributions
 
-0. For bug reports, we aim to support the most recent specifications of:
-
-   - The [Web Bot Auth protocol](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/)
-   - The [registry and signature agent card](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/)
-
-1. Verifiers require paths for graceful migration, while signers don't. Changes in verification logic, such as what is considered a valid
-   signed message, should use feature gates, deprecation warnings, or similar and outline a stable deprecation path. A method may be removed
-   if it has been deprecated for at least two minor versions before 1.0, and one major version after 1.0.
-2. We support WASM as a compilation target for Rust. Your changes should be tested to work on `wasm32-unknown-unknown` in addition to local environments.
-3. AI-generated pull requests are accepted, but, where possible, use your own voice to describe the issue and your plan. Avoid long description and text and go directly to the core of the work.
+- Use the current [Web Bot Auth protocol](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/) and [registry and Signature Agent Card](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-registry/) drafts as conformance references.
+- If a signing or verification change affects compatibility with deployed peers, describe how users should roll it out. If security or spec compliance requires an immediate break, explain why and what users need to change.
+- Keep deprecated public APIs for at least two minor releases before 1.0 and at least one major version from 1.0 onward.
+- AI-assisted PRs are welcome. Explain the problem and your plan briefly, in your own words.
 
 ## Testing
 
@@ -37,6 +25,12 @@ You can run these manually using:
 
 ```bash
 cargo +stable test --workspace --all-features --all-targets
+```
+
+For Rust changes affecting WASM, run the same build as [CI](./.github/workflows/pullrequest.yml):
+
+```bash
+cargo +stable build --workspace --exclude http-signature-directory --all-features --tests --target wasm32-unknown-unknown
 ```
 
 We also target Cloudflare's worker environment. A [basic example](./examples/signature-agent-card-and-registry/)
