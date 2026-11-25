@@ -1,4 +1,4 @@
-import { createSignature, component } from "http-message-sig";
+import { appendSignature, createSignature, component } from "http-message-sig";
 import { describe, expect, it, vi } from "vitest";
 import {
   generateNonce,
@@ -257,7 +257,7 @@ describe("Signature-Agent coverage", () => {
     ).rejects.toMatchObject({
       message: "Verifier resolution failed",
       cause: {
-        message: "signature must cover exactly one signature-agent member",
+        message: "signature must cover its own signature-agent member",
       },
     });
     expect(resolver).not.toHaveBeenCalled();
@@ -298,6 +298,73 @@ describe("Signature-Agent coverage", () => {
       })
     );
   });
+
+  it.each(["complete", "reordered", "missing input", "missing path"])(
+    "checks %s nested coverage without verifying the inner signature",
+    async (coverage) => {
+      const signer = await signerFromJWK(ed25519Jwk);
+      const verifier = await verifierFromJWK(ed25519Jwk);
+      const request = new Request("https://origin.example/resource", {
+        headers: {
+          "signature-agent":
+            'agent="https://agent.example", browser="https://browser.example"',
+        },
+      });
+      const agent = component("signature-agent", { key: "agent" });
+      const browser = component("signature-agent", { key: "browser" });
+      const innerInput = component("signature-input", { key: "agent" });
+      const innerSignature = component("signature", { key: "agent" });
+      // Use a component the outer profile does not independently require.
+      const inner = await sign(request, {
+        signer,
+        label: "agent",
+        created,
+        expires: created,
+        additionalComponents: ["@path"],
+      });
+      const innerRequest = withSignature(request, inner);
+      const outer = await createSignature(innerRequest, {
+        label: "browser",
+        signer,
+        components: [
+          "@authority",
+          ...(coverage === "reordered" ? [browser, agent] : [agent, browser]),
+          innerSignature,
+          ...(coverage === "missing input" ? [] : [innerInput]),
+          ...(coverage === "missing path" ? [] : ["@path"]),
+        ],
+        parameters: {
+          created: created.getTime() / 1000,
+          expires: expires.getTime() / 1000,
+          tag: "web-bot-auth",
+          keyid: signer.keyid,
+        },
+      });
+      const headers = appendSignature(innerRequest.headers, outer);
+      const resolver = vi.fn(() => verifier);
+      const result = verify(new Request(request, { headers }), {
+        label: "browser",
+        now,
+        resolver,
+      });
+      if (coverage === "missing input" || coverage === "missing path") {
+        await expect(result).rejects.toMatchObject({
+          cause: {
+            message:
+              coverage === "missing input"
+                ? "signature must cover Signature-Input member agent"
+                : "signature must cover every component of Signature-Input member agent",
+          },
+        });
+        expect(resolver).not.toHaveBeenCalled();
+      } else {
+        await expect(result).resolves.toMatchObject({
+          signatureAgent: { label: "browser", uri: "https://browser.example" },
+        });
+        expect(resolver).toHaveBeenCalledTimes(1);
+      }
+    }
+  );
 
   it("rejects req component confusion", async () => {
     const signer = await signerFromJWK(ed25519Jwk);

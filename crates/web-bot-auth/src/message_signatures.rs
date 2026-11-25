@@ -263,6 +263,8 @@ pub trait SignedMessage {
     /// Retrieve the raw value(s) of a covered component. Implementations should
     /// respect any parameter values set on the covered component per the message
     /// signature spec. Component values that cannot be found must return an empty vector.
+    /// For `key`, return the serialized dictionary member value without its key
+    /// or `=` (RFC 9421 Section 2.1.2).
     /// `CoveredComponent::HTTP` fields are guaranteed to have lowercase ASCII names, so
     /// care should be taken to ensure HTTP field names in the message are checked in a
     /// case-insensitive way. Only `CoveredComponent::Http` should return a vector with
@@ -279,6 +281,8 @@ pub trait SignedMessage {
 pub trait UnsignedMessage {
     /// Obtain a list of covered components to be included. HTTP fields must be lowercased before
     /// emitting. It is NOT RECOMMENDED to include `signature` and `signature-input` fields here.
+    /// For `key`, supply the serialized dictionary member value without its key
+    /// or `=` (RFC 9421 Section 2.1.2).
     /// If signing a Web Bot Auth message, and `Signature-Agent` header is intended present, you MUST
     /// include it as a component here for successful verification.
     fn fetch_components_to_cover(&self) -> IndexMap<CoveredComponent, String>;
@@ -560,19 +564,32 @@ impl MessageVerifier {
     where
         P: Fn(&(sfv::Key, sfv::InnerList)) -> bool,
     {
+        Self::parse_with_input_check(message, pick, |_, _| Ok(()))
+    }
+
+    pub(crate) fn parse_with_input_check<P>(
+        message: &impl SignedMessage,
+        pick: P,
+        check_input: impl FnOnce(&sfv::Dictionary, &sfv::InnerList) -> Result<(), ImplementationError>,
+    ) -> Result<Self, ImplementationError>
+    where
+        P: Fn(&(sfv::Key, sfv::InnerList)) -> bool,
+    {
         let signature_input = parse_signature_dictionary(message, "Signature-Input")?;
         let mut signature_header = parse_signature_dictionary(message, "Signature")?;
 
         let (label, innerlist) = signature_input
-            .into_iter()
+            .iter()
             .filter_map(|(label, listentry)| match listentry {
-                sfv::ListEntry::InnerList(inner_list) => Some((label, inner_list)),
+                sfv::ListEntry::InnerList(inner_list) => Some((label.clone(), inner_list.clone())),
                 sfv::ListEntry::Item(_) => None,
             })
             .find(pick)
             .ok_or(ImplementationError::ParsingError(
                 "No matching label and signature base found".into(),
             ))?;
+
+        check_input(&signature_input, &innerlist)?;
 
         let signature = match signature_header.shift_remove(&label).ok_or(
             ImplementationError::ParsingError("No matching signature found from label".into()),

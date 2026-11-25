@@ -695,21 +695,56 @@ function topLevelMemberCount(input: string): number {
   return count;
 }
 
-function rawParameterCount(input: string): number {
+function assertIntegerTimestamp(input: string, start: number): void {
+  while (input[start] === " ") start += 1;
+  const name = input.startsWith("created=", start)
+    ? "created"
+    : input.startsWith("expires=", start)
+      ? "expires"
+      : undefined;
+  if (name === undefined) return;
+  start += name.length + 1;
+  if (input[start] === "-") start += 1;
+  // The Structured Fields parser has already validated the number syntax.
+  while (input.charCodeAt(start) >= 48 && input.charCodeAt(start) <= 57)
+    start += 1;
+  if (input[start] === ".")
+    fail(SignatureErrorCode.MalformedField, `${name} must be an integer`);
+}
+
+function rawParameterCount(
+  input: string,
+  dictionary: Dictionary,
+  timestampLabel: string | null | undefined
+): number {
   let count = 0;
   let quoted = false;
-  let escaped = false;
-  for (const character of input) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
+  const labels =
+    typeof timestampLabel === "string" ? dictionary.keys() : undefined;
+  let label = labels?.next().value;
+  let signatureParameters = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
     if (quoted && character === "\\") {
-      escaped = true;
+      index += 1;
       continue;
     }
     if (character === '"') quoted = !quoted;
-    if (!quoted && character === ";") count += 1;
+    if (quoted) continue;
+    if (character === ";") {
+      count += 1;
+      if (
+        signatureParameters &&
+        (timestampLabel === undefined || timestampLabel === label)
+      ) {
+        assertIntegerTimestamp(input, index + 1);
+      }
+    } else if (timestampLabel !== null && character === ",") {
+      label = labels?.next().value;
+      signatureParameters = false;
+    } else if (timestampLabel !== null && character === ")") {
+      signatureParameters = true;
+    }
   }
   return count;
 }
@@ -766,7 +801,11 @@ function parseRfc8941Dictionary(input: string, name: string): Dictionary {
   return dictionary;
 }
 
-function parseStrictDictionary(input: string, name: string): Dictionary {
+function parseStrictDictionary(
+  input: string,
+  name: string,
+  timestampLabel: string | null | undefined
+): Dictionary {
   const dictionary = parseRfc8941Dictionary(input, name);
   if (topLevelMemberCount(input) !== dictionary.size) {
     return fail(
@@ -774,7 +813,10 @@ function parseStrictDictionary(input: string, name: string): Dictionary {
       `${name} has duplicate labels`
     );
   }
-  if (rawParameterCount(input) !== parsedParameterCount(dictionary)) {
+  if (
+    rawParameterCount(input, dictionary, timestampLabel) !==
+    parsedParameterCount(dictionary)
+  ) {
     return fail(
       SignatureErrorCode.MalformedField,
       `${name} has duplicate parameters`
@@ -800,7 +842,7 @@ function assertRfc8941Dictionary(dictionary: Dictionary, name: string): void {
 }
 
 function parseSignatureDictionary(input: string): Dictionary {
-  const dictionary = parseStrictDictionary(input, "Signature");
+  const dictionary = parseStrictDictionary(input, "Signature", null);
   for (const member of dictionary.values()) {
     if (
       isInnerList(member) ||
@@ -816,8 +858,16 @@ function parseSignatureDictionary(input: string): Dictionary {
   return dictionary;
 }
 
-function parseSignatureInputDictionary(input: string): Dictionary {
-  const dictionary = parseStrictDictionary(input, "Signature-Input");
+function parseSignatureInputDictionary(
+  input: string,
+  timestampLabel?: string | null
+): Dictionary {
+  // Check all members when appending, or only the selected member when verifying.
+  const dictionary = parseStrictDictionary(
+    input,
+    "Signature-Input",
+    timestampLabel
+  );
   for (const member of dictionary.values()) {
     if (!isInnerList(member)) {
       fail(
@@ -1025,7 +1075,10 @@ export async function verifySignature<V extends Verifier>(
   const signatureHeader = getRequiredField(snapshot, "signature");
   const inputHeader = getRequiredField(snapshot, "signature-input");
   const signatures = parseSignatureDictionary(signatureHeader);
-  const inputs = parseSignatureInputDictionary(inputHeader);
+  const inputs = parseSignatureInputDictionary(
+    inputHeader,
+    options.label ?? (signatures.size === 1 ? undefined : null)
+  );
   const label = selectedLabel(signatures, inputs, options.label);
   const inputMember = inputs.get(label);
   const signatureMember = signatures.get(label);

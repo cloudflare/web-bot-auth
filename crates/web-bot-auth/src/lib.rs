@@ -182,6 +182,48 @@ pub enum SignatureAgentLink {
     LegacyDirectory(String),
 }
 
+fn check_nested_coverage(
+    inputs: &sfv::Dictionary,
+    outer: &sfv::InnerList,
+) -> Result<(), ImplementationError> {
+    for component in &outer.items {
+        if !component
+            .bare_item
+            .as_string()
+            .is_some_and(|name| name.as_str().eq_ignore_ascii_case("signature"))
+        {
+            continue;
+        }
+        let CoveredComponent::HTTP(HTTPField { parameters, .. }) = component.clone().try_into()?
+        else {
+            continue;
+        };
+        let [HTTPFieldParameters::Key(key)] = parameters.0.as_slice() else {
+            continue;
+        };
+        let input_component = sfv::Item::try_from(HTTPField {
+            name: "signature-input".into(),
+            parameters: parameters.clone(),
+        })?;
+        let Some(sfv::ListEntry::InnerList(inner)) = inputs.get(key.as_str()) else {
+            return Err(ImplementationError::ParsingError(format!(
+                "Missing `Signature-Input` inner list for {key}"
+            )));
+        };
+        if !outer.items.contains(&input_component) {
+            return Err(ImplementationError::ParsingError(format!(
+                "Signature must cover `Signature-Input` member {key}"
+            )));
+        }
+        if !inner.items.iter().all(|item| outer.items.contains(item)) {
+            return Err(ImplementationError::ParsingError(format!(
+                "Signature must cover every component of `Signature-Input` member {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl WebBotAuthVerifier {
     /// Parse a message into a structure that is ready for verification against an
     /// external key with a suitable algorithm. If `alg` is not set, a default will
@@ -196,8 +238,9 @@ impl WebBotAuthVerifier {
             parameters: components::HTTPFieldParametersSet(vec![]),
         }));
 
-        let message_verifier =
-            MessageVerifier::parse(message, |(_, innerlist)| {
+        let message_verifier = MessageVerifier::parse_with_input_check(
+            message,
+            |(_, innerlist)| {
                 innerlist.params.contains_key("keyid")
                     && innerlist.params.contains_key("tag")
                     && innerlist.params.contains_key("expires")
@@ -224,25 +267,9 @@ impl WebBotAuthVerifier {
                     } else {
                         true
                     })
-            })?;
-
-        let mut signature_agent_key: Option<String> = None;
-        for (component, _) in message_verifier.parsed.base.components.iter() {
-            if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component
-                && name == "signature-agent"
-                && parameters
-                    .0
-                    .iter()
-                    .all(|parameter| matches!(parameter, HTTPFieldParameters::Key(_)))
-            {
-                for parameter in parameters.0.iter() {
-                    if let HTTPFieldParameters::Key(key) = parameter {
-                        signature_agent_key = Some(key.clone());
-                    }
-                }
-                break;
-            }
-        }
+            },
+            check_nested_coverage,
+        )?;
 
         let parse_link =
             |link_str: &str, discovery_type: &Option<SignatureAgentDiscoveryType>, legacy| {
@@ -263,11 +290,37 @@ impl WebBotAuthVerifier {
             ImplementationError::ParsingError(format!("Failed to parse `Signature-Agent`: {error}"))
         })?;
         let legacy = matches!(header, registry::SignatureAgentHeader::Legacy { .. });
+        let mut bare_agent = false;
+        let mut keys = Vec::new();
+        for component in message_verifier.parsed.base.components.keys() {
+            if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component
+                && name == "signature-agent"
+            {
+                match parameters.0.as_slice() {
+                    [] => bare_agent = true,
+                    [HTTPFieldParameters::Key(key)] => keys.push(key),
+                    _ => {}
+                }
+            }
+        }
+        let signature_agent_key = match keys.as_slice() {
+            _ if legacy && bare_agent => None,
+            [] => None,
+            // A proxy may have relabeled the signature, not the signed member.
+            [key] => Some(*key),
+            _ => Some(
+                keys.into_iter()
+                    .find(|key| key.as_str() == message_verifier.parsed.label.as_str())
+                    .ok_or_else(|| {
+                        ImplementationError::ParsingError(
+                            "Signature must cover its own `Signature-Agent` member".into(),
+                        )
+                    })?,
+            ),
+        };
         let mut parsed_directories = Vec::new();
         for entry in header {
-            if signature_agent_key
-                .as_ref()
-                .is_none_or(|key| entry.label == *key)
+            if signature_agent_key.is_none_or(|key| entry.label == *key)
                 && let Some(link) = parse_link(&entry.uri, &entry.discovery_type, legacy)
             {
                 parsed_directories.push(link);
@@ -438,6 +491,80 @@ mod tests {
                 }
             }
             StandardTestVector {}.lookup_component(component)
+        }
+    }
+
+    #[test]
+    fn checks_nested_coverage_and_selects_the_outer_signature_agent() {
+        struct Message<'a>(&'a str);
+        impl SignedMessage for Message<'_> {
+            fn lookup_component(&self, component: &CoveredComponent) -> Vec<String> {
+                let value = match component {
+                    CoveredComponent::Derived(DerivedComponent::Authority { .. }) => "example.com",
+                    CoveredComponent::Derived(DerivedComponent::Path { .. }) => "/resource",
+                    CoveredComponent::HTTP(HTTPField { name, parameters }) => {
+                        const INNER: &str =
+                            r#"("@authority" "@path" "signature-agent";key="agent")"#;
+                        match (name.as_str(), parameters.0.as_slice()) {
+                            ("signature-input", []) => {
+                                return vec![format!(
+                                    r#"agent={INNER}, browser=("@authority" {});created=1735689600;expires=1735693200;keyid="test";tag="web-bot-auth""#,
+                                    self.0
+                                )];
+                            }
+                            ("signature", []) => "agent=:AQ==:, browser=:Ag==:",
+                            ("signature-agent", []) => {
+                                r#"agent="https://agent.example", browser="https://browser.example""#
+                            }
+                            ("signature-agent", [HTTPFieldParameters::Key(key)])
+                                if key == "browser" =>
+                            {
+                                r#""https://browser.example""#
+                            }
+                            (name, [HTTPFieldParameters::Key(key)]) if key == "agent" => match name
+                            {
+                                "signature-input" => INNER,
+                                "signature" => ":AQ==:",
+                                "signature-agent" => r#""https://agent.example""#,
+                                _ => return vec![],
+                            },
+                            _ => return vec![],
+                        }
+                    }
+                    _ => return vec![],
+                };
+                vec![value.to_string()]
+            }
+        }
+
+        let agent = r#""signature-agent";key="agent""#;
+        let browser = r#""signature-agent";key="browser""#;
+        let signature = r#""signature";key="agent""#;
+        let input = r#""signature-input";key="agent""#;
+        for components in [
+            format!(r#"{agent} {browser} {signature} {input} "@path""#),
+            format!(r#"{browser} {agent} {input} {signature} "@path""#),
+        ] {
+            let verifier = WebBotAuthVerifier::parse(&Message(&components)).unwrap();
+            assert_eq!(
+                verifier.get_signature_agents().as_slice(),
+                [SignatureAgentLink::Directory(
+                    "https://browser.example".into()
+                )]
+            );
+        }
+        for (components, expected) in [
+            (
+                format!(r#"{agent} {browser} {signature} "@path""#),
+                "must cover `Signature-Input` member agent",
+            ),
+            (
+                format!("{agent} {browser} {signature} {input}"),
+                "must cover every component of `Signature-Input` member agent",
+            ),
+        ] {
+            let err = WebBotAuthVerifier::parse(&Message(&components)).unwrap_err();
+            assert!(err.to_string().contains(expected), "{err}");
         }
     }
 

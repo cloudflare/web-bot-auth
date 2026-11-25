@@ -12,14 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde::Deserialize;
 use web_bot_auth::{
-    ImplementationError, SignatureAgentLink, WebBotAuthError, WebBotAuthVerifier,
-    components::{CoveredComponent, DerivedComponent, HTTPField},
+    SignatureAgentLink, WebBotAuthVerifier,
+    components::{CoveredComponent, DerivedComponent, HTTPField, HTTPFieldParameters},
     keyring::{Algorithm, KeyRing},
     message_signatures::SignedMessage,
 };
 
-struct MySignedMsg;
+#[derive(Deserialize)]
+struct MySignedMsg {
+    signature_agent: String,
+    signature_input: String,
+    signature: String,
+}
 
 impl SignedMessage for MySignedMsg {
     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
@@ -27,19 +33,20 @@ impl SignedMessage for MySignedMsg {
             CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
                 vec!["example.com".to_string()]
             }
-            CoveredComponent::HTTP(HTTPField { name, .. }) => {
-                if name == "signature-agent" {
-                    return vec![r#"agent1="https://myexample.com""#.to_string()];
+            CoveredComponent::HTTP(HTTPField { name, parameters }) => {
+                match (name.as_str(), parameters.0.as_slice()) {
+                    ("signature-agent", []) => vec![self.signature_agent.clone()],
+                    // E.2.1 contains one dictionary member. `key` selects its value.
+                    ("signature-agent", [HTTPFieldParameters::Key(key)]) if key == "sig2" => self
+                        .signature_agent
+                        .strip_prefix("sig2=")
+                        .map(str::to_owned)
+                        .into_iter()
+                        .collect(),
+                    ("signature", []) => vec![self.signature.clone()],
+                    ("signature-input", []) => vec![self.signature_input.clone()],
+                    _ => vec![],
                 }
-
-                if name == "signature" {
-                    return vec![r#"sig1=:EZZ8VJcVQ9WgiUytQWAfEvRWLLu2O+UkJ15aVI//dfLTCLnr1Vg2CDXXlrW4D+OjBB6zu/UkFtxpKzbXh2ESBg==:"#.to_string()];
-                }
-
-                if name == "signature-input" {
-                    return vec![r#"sig1=("@authority" "signature-agent";key="agent1");keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";nonce="ZO3/XMEZjrvSnLtAP9M7jK0WGQf3J+pbmQRUpKDhF9/jsNCWqUh2sq+TH4WTX3/GpNoSZUa8eNWMKqxWp2/c2g==";tag="web-bot-auth";created=1761143856;expires=1761143866"#.to_string()];
-                }
-                vec![]
             }
             _ => vec![],
         }
@@ -60,33 +67,17 @@ fn main() {
         Algorithm::Ed25519,
         public_key.to_vec(),
     );
-    let test = MySignedMsg {};
-    let verifier = WebBotAuthVerifier::parse(&test).unwrap();
-    let advisory = verifier
-        .get_parsed_label()
-        .base
-        .parameters
-        .details
-        .possibly_insecure(|_| false);
-    for url in verifier.get_signature_agents().iter() {
-        assert_eq!(
-            url,
-            &SignatureAgentLink::Directory("https://myexample.com".into())
-        )
-    }
-    // Since the expiry date is in the past.
-    assert!(advisory.is_expired.unwrap_or(true));
-    assert!(!advisory.nonce_is_invalid.unwrap_or(true));
-    assert!(matches!(
-        verifier.verify(&keyring, None),
-        Err(ImplementationError::WebBotAuth(
-            WebBotAuthError::SignatureIsExpired
-        ))
-    ));
-
-    // Opt-in advisory path: full cryptographic verification still runs, and
-    // the expired window is reported as a warning instead of an error.
-    let verifier = WebBotAuthVerifier::parse(&test).unwrap();
-    let outcome = verifier.verify_ignore_expiry(&keyring, None).unwrap();
-    assert!(outcome.advisory.is_expired.unwrap_or(true));
+    let [dictionary, _legacy]: [MySignedMsg; 2] = serde_json::from_str(include_str!(
+        "../verification-workers/test/draft-ietf-webbotauth-httpsig-protocol-01.json"
+    ))
+    .unwrap();
+    let verifier = WebBotAuthVerifier::parse(&dictionary).unwrap();
+    assert_eq!(
+        verifier.get_signature_agents().as_slice(),
+        &[SignatureAgentLink::Directory(
+            "https://signature-agent.test".into()
+        )]
+    );
+    // Check the published fixture regardless of when the example runs.
+    verifier.verify_ignore_expiry(&keyring, None).unwrap();
 }

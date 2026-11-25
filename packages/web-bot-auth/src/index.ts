@@ -16,6 +16,7 @@ import {
   type Verifier,
 } from "http-message-sig";
 import { jwkThumbprint as jwkToKeyID } from "jsonwebkey-thumbprint";
+import { isInnerList, parseDictionary } from "structured-headers";
 import {
   parseRegistry,
   parseSignatureAgentCard,
@@ -171,7 +172,7 @@ function requestHeader(
   if ("kind" in request) {
     const values = request.fields
       .filter((field) => field.name.toLowerCase() === name)
-      .map((field) => field.value.trim());
+      .map((field) => field.value.replace(/\r\n[\t ]+/g, " ").trim());
     return values.length === 0 ? undefined : values.join(", ");
   }
   return request.headers.get(name) ?? undefined;
@@ -214,6 +215,7 @@ function hasExactBareTarget(
 
 function verifiedSignatureAgent(
   request: Request | RequestDescriptor,
+  label: string,
   components: readonly ComponentDescriptor[]
 ): SignatureAgentEntry | undefined {
   const header = requestHeader(request, SIGNATURE_AGENT_HEADER);
@@ -239,16 +241,62 @@ function verifiedSignatureAgent(
       ? [parameters.key]
       : [];
   });
-  if (keys.length !== 1) {
+  const key = keys.includes(label)
+    ? label
+    : keys.length === 1
+      ? keys[0]
+      : undefined;
+  if (key === undefined) {
     return policyError(
-      `signature must cover exactly one ${SIGNATURE_AGENT_HEADER} member`
+      `signature must cover its own ${SIGNATURE_AGENT_HEADER} member`
     );
   }
-  const entry = parsed.entries.find((candidate) => candidate.label === keys[0]);
+  const entry = parsed.entries.find((candidate) => candidate.label === key);
   if (entry === undefined) {
-    return policyError(`Signature-Agent has no supported member ${keys[0]}`);
+    return policyError(`Signature-Agent has no supported member ${key}`);
   }
   return Object.freeze({ ...entry });
+}
+
+function assertNestedCoverage(
+  request: Request | RequestDescriptor,
+  components: readonly ComponentDescriptor[]
+): void {
+  const nestedKeys = components.flatMap(({ name, parameters }) =>
+    name === "signature" && typeof parameters.key === "string"
+      ? [parameters.key]
+      : []
+  );
+  if (nestedKeys.length === 0) return;
+
+  const inputs = parseDictionary(
+    requestHeader(request, "signature-input") ?? ""
+  );
+  for (const key of nestedKeys) {
+    const input = inputs.get(key);
+    const coversInput = components.some(
+      ({ name, parameters }) =>
+        name === "signature-input" && parameters.key === key
+    );
+    if (!coversInput || input === undefined || !isInnerList(input)) {
+      return policyError(`signature must cover Signature-Input member ${key}`);
+    }
+    for (const [name, parameters] of input[0]) {
+      const covered = components.some(
+        (outer) =>
+          outer.name === name &&
+          Object.keys(outer.parameters).length === parameters.size &&
+          [...parameters].every(
+            ([parameter, value]) => outer.parameters[parameter] === value
+          )
+      );
+      if (!covered) {
+        return policyError(
+          `signature must cover every component of Signature-Input member ${key}`
+        );
+      }
+    }
+  }
 }
 
 function signingOptions(
@@ -318,7 +366,7 @@ function profileCandidate(
   request: Request | RequestDescriptor,
   candidate: UntrustedSignatureCandidate
 ): UntrustedWebBotSignatureCandidate {
-  const { algorithm, parameters, components } = candidate;
+  const { algorithm, parameters, components, label } = candidate;
   if (
     algorithm !== undefined &&
     algorithm !== "ed25519" &&
@@ -345,7 +393,8 @@ function profileCandidate(
       "signature must cover bare @authority or bare @target-uri"
     );
   }
-  const agent = verifiedSignatureAgent(request, components);
+  assertNestedCoverage(request, components);
+  const agent = verifiedSignatureAgent(request, label, components);
   return Object.freeze({ keyid, algorithm, signatureAgent: agent });
 }
 

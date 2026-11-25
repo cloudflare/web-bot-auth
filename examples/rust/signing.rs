@@ -22,6 +22,9 @@ use web_bot_auth::{
     message_signatures::{MessageSigner, UnsignedMessage},
 };
 
+const SIGNATURE_AGENT_VALUE: &str =
+    r#""https://myexample.com/.well-known/http-message-signatures-directory""#;
+
 #[derive(Debug, Default)]
 pub(crate) struct MyThing {
     signature_input: String,
@@ -42,8 +45,7 @@ impl UnsignedMessage for MyThing {
                         "sig1".to_string(),
                     )]),
                 }),
-                r#"sig1="https://myexample.com/.well-known/http-message-signatures-directory""#
-                    .to_string(),
+                SIGNATURE_AGENT_VALUE.to_string(),
             ),
         ])
     }
@@ -81,5 +83,7 @@ fn main() {
     assert!(!headers.signature_input.is_empty());
     assert!(!headers.signature_header.is_empty());
 
-    println!("{:?}", headers);
+    println!("Signature-Agent: sig1={SIGNATURE_AGENT_VALUE}");
+    println!("Signature-Input: {}", headers.signature_input);
+    println!("Signature: {}", headers.signature_header);
 }
