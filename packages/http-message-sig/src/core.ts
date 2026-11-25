@@ -48,6 +48,7 @@ const unsupportedParameters = new Set(["sf", "bs", "tr"]);
 
 interface RequestSnapshot {
   readonly kind: "request";
+  readonly native: boolean;
   readonly method: string;
   readonly targetUri: string;
   readonly requestTarget?: string;
@@ -323,20 +324,15 @@ function isNativeResponse(message: SignatureMessage): message is Response {
   return typeof Response !== "undefined" && message instanceof Response;
 }
 
-// RFC 9110 Section 7.1: the target URI excludes the fragment.
-function withoutFragment(uri: string): string {
-  const fragment = uri.indexOf("#");
-  return fragment === -1 ? uri : uri.slice(0, fragment);
-}
-
 function snapshotRequest(
   message: Request | RequestDescriptor
 ): RequestSnapshot {
   if (isNativeRequest(message)) {
     return Object.freeze({
       kind: "request",
+      native: true,
       method: message.method,
-      targetUri: withoutFragment(message.url),
+      targetUri: message.url,
       fields: fieldsFromHeaders(message.headers),
       trailers: Object.freeze([]),
     });
@@ -350,6 +346,7 @@ function snapshotRequest(
   }
   return Object.freeze({
     kind: "request",
+    native: false,
     method: message.method,
     targetUri: message.targetUri,
     requestTarget: message.requestTarget,
@@ -454,38 +451,46 @@ function requestTarget(
   name: string
 ): {
   readonly url: URL;
+  readonly targetUri: string;
   readonly path: string;
   readonly query: string;
 } {
   const url = requestUrl(snapshot, name);
+  let { targetUri } = snapshot;
   // URL.hash is empty for a bare "#".
-  if (snapshot.targetUri.includes("#")) {
-    return fail(
-      SignatureErrorCode.InvalidComponent,
-      `${name} target URI cannot contain a fragment`
-    );
+  if (targetUri.includes("#")) {
+    if (!snapshot.native) {
+      return fail(
+        SignatureErrorCode.InvalidComponent,
+        `${name} target URI cannot contain a fragment`
+      );
+    }
+    // Fetch does not send the fragment (RFC 9110, Section 7.1).
+    url.hash = "";
+    targetUri = url.href;
   }
-  const schemeEnd = snapshot.targetUri.indexOf("://");
+  const schemeEnd = targetUri.indexOf("://");
   if (schemeEnd === -1) {
     return fail(
       SignatureErrorCode.InvalidComponent,
       `${name} requires an HTTP target URI`
     );
   }
-  const pathStart = snapshot.targetUri.indexOf("/", schemeEnd + 3);
-  const queryStart = snapshot.targetUri.indexOf("?", schemeEnd + 3);
+  const pathStart = targetUri.indexOf("/", schemeEnd + 3);
+  const queryStart = targetUri.indexOf("?", schemeEnd + 3);
   const start =
     pathStart !== -1 && (queryStart === -1 || pathStart < queryStart)
       ? pathStart
       : queryStart;
-  const pathEnd = queryStart === -1 ? snapshot.targetUri.length : queryStart;
+  const pathEnd = queryStart === -1 ? targetUri.length : queryStart;
   return Object.freeze({
     url,
+    targetUri,
     path:
       start === -1 || start === queryStart
         ? "/"
-        : snapshot.targetUri.slice(start, pathEnd),
-    query: queryStart === -1 ? "?" : snapshot.targetUri.slice(queryStart),
+        : targetUri.slice(start, pathEnd),
+    query: queryStart === -1 ? "?" : targetUri.slice(queryStart),
   });
 }
 
@@ -512,7 +517,7 @@ function extractDerived(
   const target = requestTarget(snapshot, name);
   switch (name) {
     case "@target-uri":
-      return snapshot.targetUri;
+      return target.targetUri;
     case "@authority":
       return target.url.host;
     case "@scheme":
