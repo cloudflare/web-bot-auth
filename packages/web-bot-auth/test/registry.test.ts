@@ -31,14 +31,24 @@ describe("Signature-Agent invalid syntax", () => {
     expect(() => parseSignatureAgentHeader("")).toThrow("must not be empty");
   });
 
+  it.each([
+    'sig1="https:signature-agent.test"',
+    'sig1="https://\\\\signature-agent.test";type=cimd',
+    '"https:///signature-agent.test"',
+  ])("rejects an https member without an authority %s", (header) => {
+    expect(() => parseSignatureAgentHeader(header)).toThrow(
+      "Signature-Agent must name a host"
+    );
+  });
+
   it("accepts legacy string syntax with a warning", () => {
-    expect(parseSignatureAgentHeader('"https://signature-agent.test"')).toEqual(
+    expect(parseSignatureAgentHeader('"HTTPS://signature-agent.test"')).toEqual(
       {
         kind: "legacy",
         entries: [
           {
             label: "",
-            uri: "https://signature-agent.test",
+            uri: "HTTPS://signature-agent.test",
           },
         ],
       }

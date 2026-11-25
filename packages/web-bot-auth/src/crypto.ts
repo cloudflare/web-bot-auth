@@ -19,8 +19,8 @@ async function keyid(jwk: JsonWebKey): Promise<string> {
 
 function jwkAlgorithm(jwk: JsonWebKey): WebBotAlgorithm {
   if (jwk.kty === "OKP" && jwk.crv === "Ed25519") {
-    if (jwk.alg !== undefined && jwk.alg !== "EdDSA") {
-      throw new Error("Ed25519 JWK alg must be EdDSA when present");
+    if (jwk.alg !== undefined && jwk.alg !== "Ed25519" && jwk.alg !== "EdDSA") {
+      throw new Error("Ed25519 JWK alg must be Ed25519 or EdDSA when present");
     }
     return "ed25519";
   }
@@ -47,9 +47,11 @@ function publicJwk(jwk: JsonWebKey, algorithm: WebBotAlgorithm): JsonWebKey {
 
 export async function signerFromJWK(jwk: JsonWebKey): Promise<WebBotSigner> {
   const algorithm = jwkAlgorithm(jwk);
+  // Some Web Crypto runtimes only accept the legacy EdDSA label.
+  const importJwk = jwk.alg === "Ed25519" ? { ...jwk, alg: undefined } : jwk;
   const key = await crypto.subtle.importKey(
     "jwk",
-    jwk,
+    importJwk,
     importAlgorithm(algorithm),
     false,
     ["sign"]

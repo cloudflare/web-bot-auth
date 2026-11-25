@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability privately
+    url: https://github.com/cloudflare/web-bot-auth/security/advisories/new
+    about: Do not post suspected vulnerabilities in public issues or pull requests.
+  - name: Contributing guidelines
+    url: https://github.com/cloudflare/web-bot-auth/blob/main/CONTRIBUTING.md
+    about: Read the contribution and testing guidelines.

@@ -21,9 +21,10 @@ import {
 } from "cloudflare:test";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { sign } from "web-bot-auth";
-import { signerFromJWK } from "web-bot-auth/crypto";
+import { signerFromJWK, verifierFromJWK } from "web-bot-auth/crypto";
 import worker from "../src/index";
 import jwk from "../../rfc9421-keys/ed25519.json" with { type: "json" };
+import draftVectors from "./draft-ietf-webbotauth-httpsig-protocol-01.json" with { type: "json" };
 
 // For now, you'll need to do something like this to get a correctly-typed
 // `Request` to pass to `worker.fetch()`.
@@ -73,6 +74,15 @@ async function fetchValidator(body: Record<string, string>): Promise<Response> {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
+	vi.useRealTimers();
+});
+
+it("signs and verifies with Ed25519 JWKs labeled Ed25519", async () => {
+	const { kty, crv, x } = jwk;
+	const signer = await signerFromJWK({ ...jwk, alg: "Ed25519" });
+	const verifier = await verifierFromJWK({ kty, crv, x, alg: "Ed25519" });
+	const data = new TextEncoder().encode("test message");
+	expect(await verifier.verify(data, await signer.sign(data))).toBe(true);
 });
 
 describe("/ endpoint", () => {
@@ -271,6 +281,39 @@ describe("/v0/api/verify endpoint", () => {
 				uri,
 				expect.objectContaining({ redirect: "manual" })
 			);
+	});
+
+	// Ed25519 vectors from draft-ietf-webbotauth-httpsig-protocol-01,
+	// Appendix E.2.1 (dictionary Signature-Agent) and E.2.2 (legacy sf-string).
+	// They are signed outside this repo, so they catch a signature base that
+	// sign() and verify() would otherwise agree on.
+	it.each(draftVectors)("accepts the draft $name vector", async (vector) => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2025-01-01T00:01:00Z"));
+		const uri =
+			"https://signature-agent.test/.well-known/http-message-signatures-directory";
+		const directory = await worker.fetch(
+			new IncomingRequest(uri),
+			env,
+			createExecutionContext()
+		);
+		const fetch = vi.fn(async () => directory.clone());
+		vi.stubGlobal("fetch", fetch);
+
+		const request = new IncomingRequest(`${sampleURL}/v0/api/verify`, {
+			headers: {
+				"Signature-Agent": vector.signature_agent,
+				"Signature-Input": vector.signature_input,
+				Signature: vector.signature,
+			},
+		});
+		const response = await worker.fetch(request, env, createExecutionContext());
+
+		expect(await response.text()).toBe("valid");
+		expect(fetch).toHaveBeenCalledWith(
+			uri,
+			expect.objectContaining({ redirect: "manual" })
+		);
 	});
 
 	it("rejects a well-known JWK whose kid is not its thumbprint", async () => {

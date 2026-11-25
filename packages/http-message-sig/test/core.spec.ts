@@ -308,6 +308,27 @@ describe("createSignature", () => {
     expect(base).toContain('"@request-target": /a/../b/%7e?q=%2f');
   });
 
+  it.each([
+    ["?", "#"],
+    ["?q=/part%23", "#frag"],
+  ])("drops the Request fragment after %s", async (query, fragment) => {
+    const targetUri = `https://example.com/path${query}`;
+    const { base } = await signed(new Request(targetUri + fragment), [
+      "@target-uri",
+      "@path",
+      "@query",
+    ]);
+    expect(new TextDecoder().decode(base)).toContain(
+      `"@target-uri": ${targetUri}\n"@path": /path\n"@query": ${query}\n`
+    );
+  });
+
+  it("rejects a bare fragment in a descriptor target URI", async () => {
+    await expect(
+      signed({ ...request, targetUri: "https://example.com/path#" }, ["@path"])
+    ).rejects.toMatchObject({ code: SignatureErrorCode.InvalidComponent });
+  });
+
   it("rejects @request-target when Fetch cannot provide it", async () => {
     await expect(
       createSignature(new Request("https://example.com/path"), {

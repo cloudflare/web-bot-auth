@@ -193,12 +193,23 @@ fn has_any_scheme(uri: &str) -> bool {
 }
 
 fn validate_discovery_uri(uri: &str) -> Result<(), RegistryError> {
-    let url = url::Url::parse(uri).map_err(|error| RegistryError::Invalid(error.to_string()))?;
-    if url.scheme() != "https" || url.host_str().is_none() {
+    let (scheme, rest) = uri.split_once(':').unwrap_or_default();
+    if !scheme.eq_ignore_ascii_case("https") {
         return Err(RegistryError::Invalid(
             "Signature-Agent must use https".into(),
         ));
     }
+    // Check the raw authority before URL parsing can repair it (RFC 9110 §4.2.2).
+    let authority = rest
+        .strip_prefix("//")
+        .and_then(|rest| rest.split(['/', '\\', '?', '#']).next())
+        .unwrap_or_default();
+    if authority.is_empty() {
+        return Err(RegistryError::Invalid(
+            "Signature-Agent must name a host".into(),
+        ));
+    }
+    url::Url::parse(uri).map_err(|error| RegistryError::Invalid(error.to_string()))?;
     Ok(())
 }
 
@@ -581,12 +592,29 @@ mod tests {
     }
 
     #[test]
+    fn rejects_https_signature_agent_without_an_authority() {
+        for header in [
+            r#"sig1="https:signature-agent.test""#,
+            r#"sig1="https://\\signature-agent.test";type=cimd"#,
+            r#""https:///signature-agent.test""#,
+        ] {
+            let error = parse_signature_agent_header(header)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("Signature-Agent must name a host"),
+                "{header}: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn accepts_legacy_signature_agent() {
-        let parsed = parse_signature_agent_header("\"https://signature-agent.test\"").unwrap();
+        let parsed = parse_signature_agent_header("\"HTTPS://signature-agent.test\"").unwrap();
         assert!(matches!(parsed, SignatureAgentHeader::Legacy { .. }));
         assert_eq!(parsed.entries().len(), 1);
         assert_eq!(parsed.entries()[0].label, "");
-        assert_eq!(parsed.entries()[0].uri, "https://signature-agent.test");
+        assert_eq!(parsed.entries()[0].uri, "HTTPS://signature-agent.test");
         assert_eq!(parsed.entries()[0].discovery_type, None);
     }
 
