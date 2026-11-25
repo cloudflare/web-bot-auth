@@ -13,9 +13,13 @@ export type SignatureParameters = Readonly<
   } & { readonly [name: string]: Rfc8941BareItem | undefined }
 >;
 
-export type ComponentParameters = Readonly<{
-  readonly [name: string]: Rfc8941BareItem | undefined;
-}>;
+export type ComponentParameters = Readonly<
+  {
+    readonly req?: true;
+    readonly key?: string;
+    readonly name?: string;
+  } & { readonly [name: string]: Rfc8941BareItem | undefined }
+>;
 
 export interface ComponentDescriptor {
   readonly name: string;

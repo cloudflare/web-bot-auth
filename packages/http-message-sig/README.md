@@ -13,6 +13,7 @@ Signatures for TypeScript.
 | Ordinary field components                  | Yes                                                                                                |
 | Structured Field dictionary member (`key`) | Yes, strict RFC 8941 parsing                                                                       |
 | Derived components                         | `@method`, `@target-uri`, `@authority`, `@scheme`, `@request-target`, `@path`, `@query`, `@status` |
+| Query parameters (`@query-param`)          | Yes, rejecting repeated names                                                                      |
 | Multiple signatures                        | Yes                                                                                                |
 | Async signing and verification             | Yes                                                                                                |
 | Synchronous signing                        | Yes                                                                                                |
@@ -67,7 +68,7 @@ only after successful cryptographic verification.
 
 ## Limitations
 
-- `sf`, `bs`, `tr`, `@query-param`, and unknown derived components are rejected
+- `sf`, `bs`, `tr`, and unknown derived components are rejected
   with `UnsupportedFeature`.
 - RFC 9651 dates and display strings are rejected in signature fields. Signature
   metadata is limited to RFC 8941 bare items.

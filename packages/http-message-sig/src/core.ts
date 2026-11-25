@@ -42,6 +42,7 @@ const derivedComponents = new Set([
   "@request-target",
   "@path",
   "@query",
+  "@query-param",
   "@status",
 ]);
 const unsupportedParameters = new Set(["sf", "bs", "tr"]);
@@ -195,12 +196,6 @@ function copyComponentParameters(
 function normalizeComponentName(name: string): string {
   const normalized = name.toLowerCase();
   if (normalized.startsWith("@")) {
-    if (normalized === "@query-param") {
-      return fail(
-        SignatureErrorCode.UnsupportedFeature,
-        "@query-param is not supported"
-      );
-    }
     if (!derivedComponents.has(normalized)) {
       return fail(
         SignatureErrorCode.UnsupportedFeature,
@@ -228,7 +223,7 @@ function validateComponent(value: ComponentDescriptor): void {
     if (unsupportedParameters.has(name)) {
       fail(SignatureErrorCode.UnsupportedFeature, `${name} is not supported`);
     }
-    if (name !== "req" && name !== "key") {
+    if (name !== "req" && name !== "key" && name !== "name") {
       fail(
         SignatureErrorCode.UnsupportedFeature,
         `Component parameter ${name} is not supported`
@@ -240,11 +235,23 @@ function validateComponent(value: ComponentDescriptor): void {
     if (name === "key" && typeof parameterValue !== "string") {
       fail(SignatureErrorCode.InvalidComponent, "key must be a string");
     }
+    if (name === "name" && typeof parameterValue !== "string") {
+      fail(SignatureErrorCode.InvalidComponent, "name must be a string");
+    }
   }
   if (value.name.startsWith("@") && value.parameters.key !== undefined) {
     fail(
       SignatureErrorCode.InvalidComponent,
       `key is invalid on derived component ${value.name}`
+    );
+  }
+  if (value.name === "@query-param" && value.parameters.name === undefined) {
+    fail(SignatureErrorCode.InvalidComponent, "@query-param requires name");
+  }
+  if (value.name !== "@query-param" && value.parameters.name !== undefined) {
+    fail(
+      SignatureErrorCode.InvalidComponent,
+      `name is invalid on component ${value.name}`
     );
   }
 }
@@ -494,10 +501,38 @@ function requestTarget(
   });
 }
 
+// URLSearchParams writes spaces as "+", not %20 (RFC 9421, Section 2.2.8).
+function encodeQueryParam(value: string): string {
+  return new URLSearchParams([["", value]])
+    .toString()
+    .slice(1)
+    .replace(/\+/g, "%20");
+}
+
+function extractQueryParam(query: string, name: string | undefined): string {
+  const values = [...new URLSearchParams(query)]
+    .filter(([key]) => encodeQueryParam(key) === name)
+    .map(([, value]) => encodeQueryParam(value));
+  if (values.length === 0) {
+    return fail(
+      SignatureErrorCode.MissingField,
+      `Missing query parameter ${name}`
+    );
+  }
+  if (values.length > 1) {
+    return fail(
+      SignatureErrorCode.InvalidComponent,
+      `Query parameter ${name} occurs more than once`
+    );
+  }
+  return values[0];
+}
+
 function extractDerived(
   snapshot: RequestSnapshot | ResponseSnapshot,
-  name: string
+  value: ComponentDescriptor
 ): string {
+  const { name } = value;
   if (name === "@status") {
     if (snapshot.kind !== "response") {
       return fail(
@@ -534,6 +569,8 @@ function extractDerived(
       return target.path;
     case "@query":
       return target.query;
+    case "@query-param":
+      return extractQueryParam(target.query, value.parameters.name);
     default:
       return fail(
         SignatureErrorCode.UnsupportedFeature,
@@ -547,13 +584,10 @@ function extractComponentValue(
   value: ComponentDescriptor
 ): string {
   const selected = requestForComponent(snapshot, value);
-  if (value.name.startsWith("@")) return extractDerived(selected, value.name);
+  if (value.name.startsWith("@")) return extractDerived(selected, value);
   const fieldValue = extractField(selected, value.name, false);
   const key = value.parameters.key;
   if (key === undefined) return fieldValue;
-  if (typeof key !== "string") {
-    return fail(SignatureErrorCode.InvalidComponent, "key must be a string");
-  }
   const dictionary = parseRfc8941Dictionary(fieldValue, `field ${value.name}`);
   const member = dictionary.get(key);
   if (member === undefined) {
