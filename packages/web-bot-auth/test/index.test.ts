@@ -456,6 +456,25 @@ describe("verification policy", () => {
     }
   );
 
+  it.each([
+    { name: "component", options: { requiredComponents: ["@method"] } },
+    { name: "parameter", options: { requiredParameters: ["nonce"] } },
+  ])(
+    "rejects a missing required $name before resolution",
+    async ({ name, options }) => {
+      const signer = await signerFromJWK(ed25519Jwk);
+      const request = await signedRequest(
+        new Request("https://example.com"),
+        signer
+      );
+      const resolver = vi.fn(() => verifierFromJWK(ed25519Jwk));
+      await expect(
+        verify(request, { ...options, resolver, now })
+      ).rejects.toThrow(`Required ${name}`);
+      expect(resolver).not.toHaveBeenCalled();
+    }
+  );
+
   it("runs replay validation after authentication", async () => {
     const signer = await signerFromJWK(ed25519Jwk);
     const verifier = await verifierFromJWK(ed25519Jwk);

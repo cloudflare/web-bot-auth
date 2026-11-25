@@ -102,6 +102,8 @@ export interface VerifyOptions<V extends WebBotVerifier = WebBotVerifier> {
     candidate: UntrustedWebBotSignatureCandidate
   ) => V | Promise<V>;
   readonly algorithms?: readonly WebBotAlgorithm[];
+  readonly requiredComponents?: readonly SignatureComponent[];
+  readonly requiredParameters?: readonly string[];
   readonly label?: string;
   readonly maxAge?: number;
   readonly clockSkew?: number;
@@ -360,8 +362,14 @@ export async function verify<V extends WebBotVerifier>(
     label: options.label,
     policy: {
       algorithms,
-      requiredComponents: [],
-      requiredParameters: ["created", "expires", "keyid", "tag"],
+      requiredComponents: options.requiredComponents ?? [],
+      requiredParameters: [
+        "created",
+        "expires",
+        "keyid",
+        "tag",
+        ...(options.requiredParameters ?? []),
+      ],
       maxAge: options.maxAge ?? 86_400,
       clockSkew: options.clockSkew ?? 0,
       now,
