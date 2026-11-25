@@ -21,7 +21,7 @@ import {
 } from "cloudflare:test";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { sign } from "web-bot-auth";
-import { signerFromJWK } from "web-bot-auth/crypto";
+import { signerFromJWK, verifierFromJWK } from "web-bot-auth/crypto";
 import worker from "../src/index";
 import jwk from "../../rfc9421-keys/ed25519.json" with { type: "json" };
 import draftVectors from "./draft-ietf-webbotauth-httpsig-protocol-01.json" with { type: "json" };
@@ -75,6 +75,14 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 	vi.useRealTimers();
+});
+
+it("signs and verifies with Ed25519 JWKs labeled Ed25519", async () => {
+	const { kty, crv, x } = jwk;
+	const signer = await signerFromJWK({ ...jwk, alg: "Ed25519" });
+	const verifier = await verifierFromJWK({ kty, crv, x, alg: "Ed25519" });
+	const data = new TextEncoder().encode("test message");
+	expect(await verifier.verify(data, await signer.sign(data))).toBe(true);
 });
 
 describe("/ endpoint", () => {

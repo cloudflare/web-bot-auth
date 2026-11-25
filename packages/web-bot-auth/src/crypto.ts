@@ -47,9 +47,11 @@ function publicJwk(jwk: JsonWebKey, algorithm: WebBotAlgorithm): JsonWebKey {
 
 export async function signerFromJWK(jwk: JsonWebKey): Promise<WebBotSigner> {
   const algorithm = jwkAlgorithm(jwk);
+  // Some Web Crypto runtimes only accept the legacy EdDSA label.
+  const importJwk = jwk.alg === "Ed25519" ? { ...jwk, alg: undefined } : jwk;
   const key = await crypto.subtle.importKey(
     "jwk",
-    jwk,
+    importJwk,
     importAlgorithm(algorithm),
     false,
     ["sign"]
