@@ -11,6 +11,7 @@ import {
   verifySignature,
   webcrypto,
   type RequestDescriptor,
+  type SignatureComponent,
   type SignatureFields,
   type SignatureMessage,
   type Verifier,
@@ -76,7 +77,12 @@ function replacingFields(
 
 async function signed(
   message: SignatureMessage = request,
-  components = ["@method", "@authority", "@path", "content-type"]
+  components: readonly SignatureComponent[] = [
+    "@method",
+    "@authority",
+    "@path",
+    "content-type",
+  ]
 ): Promise<{
   readonly fields: SignatureFields;
   readonly base: Uint8Array;
@@ -323,6 +329,30 @@ describe("createSignature", () => {
     );
   });
 
+  it("derives a re-encoded @query-param value", async () => {
+    const { base } = await signed(
+      { ...request, targetUri: "https://example.com/path?a=1&b+c=x+y%21" },
+      [component("@query-param", { name: "b%20c" })]
+    );
+    expect(new TextDecoder().decode(base)).toContain(
+      '"@query-param";name="b%20c": x%20y%21\n'
+    );
+  });
+
+  it.each([
+    ["?b=1", SignatureErrorCode.MissingField],
+    ["?a=1&%61=2", SignatureErrorCode.InvalidComponent],
+  ])(
+    "rejects a missing or repeated @query-param in %s",
+    async (query, code) => {
+      await expect(
+        signed({ ...request, targetUri: `https://example.com/path${query}` }, [
+          component("@query-param", { name: "a" }),
+        ])
+      ).rejects.toMatchObject({ code });
+    }
+  );
+
   it("rejects a bare fragment in a descriptor target URI", async () => {
     await expect(
       signed({ ...request, targetUri: "https://example.com/path#" }, ["@path"])
@@ -512,14 +542,19 @@ describe("component identities", () => {
   });
 
   it("rejects component confusion and unsupported features", () => {
-    expect(() => component("@authority", { key: "host" })).toThrowError(
-      expect.objectContaining({ code: SignatureErrorCode.InvalidComponent })
-    );
+    for (const value of [
+      () => component("@authority", { key: "host" }),
+      () => component("@query-param"),
+      () => component("@path", { name: "a" }),
+    ]) {
+      expect(value).toThrowError(
+        expect.objectContaining({ code: SignatureErrorCode.InvalidComponent })
+      );
+    }
     for (const value of [
       () => component("x", { sf: true }),
       () => component("x", { bs: true }),
       () => component("x", { tr: true }),
-      () => component("@query-param", { name: "a" }),
       () => component("@unknown"),
     ]) {
       expect(value).toThrowError(
