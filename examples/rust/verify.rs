@@ -27,13 +27,18 @@ impl SignedMessage for MySignedMsg {
             CoveredComponent::Derived(DerivedComponent::Authority { .. }) => {
                 vec!["example.com".to_string()]
             }
-            CoveredComponent::HTTP(HTTPField { name, .. }) => {
+            CoveredComponent::HTTP(HTTPField { name, parameters }) => {
                 if name == "signature-agent" {
-                    return vec![r#"agent1="https://myexample.com""#.to_string()];
+                    // RFC 9421 Section 2.1.2: `"signature-agent";key="agent1"` resolves to
+                    // the member value alone, while the bare field is the whole header.
+                    if parameters.0.is_empty() {
+                        return vec![r#"agent1="https://myexample.com""#.to_string()];
+                    }
+                    return vec![r#""https://myexample.com""#.to_string()];
                 }
 
                 if name == "signature" {
-                    return vec![r#"sig1=:EZZ8VJcVQ9WgiUytQWAfEvRWLLu2O+UkJ15aVI//dfLTCLnr1Vg2CDXXlrW4D+OjBB6zu/UkFtxpKzbXh2ESBg==:"#.to_string()];
+                    return vec![r#"sig1=:MG//w0mlYyyiWz3ED8T78I64Blk2497gqPbPKLwr/dbP5sXSq0zxgbSmKFouU+MtW6kleL79/VGCSsZJFVrmBA==:"#.to_string()];
                 }
 
                 if name == "signature-input" {

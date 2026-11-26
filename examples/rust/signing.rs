@@ -42,7 +42,10 @@ impl UnsignedMessage for MyThing {
                         "sig1".to_string(),
                     )]),
                 }),
-                r#"sig1="https://myexample.com/.well-known/http-message-signatures-directory""#
+                // RFC 9421 Section 2.1.2: a `key` component's value is the member value
+                // alone. The request carries the whole member in its header:
+                // Signature-Agent: sig1="https://myexample.com/.well-known/http-message-signatures-directory"
+                r#""https://myexample.com/.well-known/http-message-signatures-directory""#
                     .to_string(),
             ),
         ])
