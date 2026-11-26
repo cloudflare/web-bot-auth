@@ -1,4 +1,4 @@
-import { createSignature, component } from "http-message-sig";
+import { appendSignature, createSignature, component } from "http-message-sig";
 import { describe, expect, it, vi } from "vitest";
 import {
   generateNonce,
@@ -257,7 +257,7 @@ describe("Signature-Agent coverage", () => {
     ).rejects.toMatchObject({
       message: "Verifier resolution failed",
       cause: {
-        message: "signature must cover exactly one signature-agent member",
+        message: "signature must cover a signature-agent member",
       },
     });
     expect(resolver).not.toHaveBeenCalled();
@@ -356,6 +356,195 @@ describe("Signature-Agent coverage", () => {
     ).resolves.toMatchObject({
       signatureAgent: { uri: "https://bot.example" },
     });
+  });
+});
+
+describe("multiple signatures (protocol-01 §5.2.2)", () => {
+  const signatureAgent =
+    'agent="https://agent.alice.example", browser="https://browser.example"';
+
+  async function ed25519Pair(): Promise<{
+    readonly signer: WebBotSigner;
+    readonly verifier: WebBotVerifier;
+  }> {
+    const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    const { d: _d, ...publicJwk } = jwk;
+    return {
+      signer: await signerFromJWK(jwk),
+      verifier: await verifierFromJWK(publicJwk),
+    };
+  }
+
+  // Appendix D.2: Alice's agent signs, then a remote browser signs the request
+  // it sends and also covers every field of the agent's signature.
+  async function remoteBrowserRequest(
+    agent: WebBotSigner,
+    browser: WebBotSigner,
+    outer: { readonly label: string; readonly ownMember: boolean } = {
+      label: "browser",
+      ownMember: true,
+    }
+  ): Promise<Request> {
+    const request = new Request("https://origin.example/resource", {
+      headers: { "signature-agent": signatureAgent },
+    });
+    const inner = await sign(request, {
+      signer: agent,
+      label: "agent",
+      created,
+      expires,
+      additionalComponents: ["@method", "@path"],
+    });
+    const forwarded = withSignature(request, inner);
+    const outerFields = await createSignature(forwarded, {
+      label: outer.label,
+      signer: browser,
+      components: [
+        "@method",
+        "@authority",
+        "@path",
+        ...(outer.ownMember
+          ? [component("signature-agent", { key: outer.label })]
+          : []),
+        component("signature-agent", { key: "agent" }),
+        component("signature-input", { key: "agent" }),
+        component("signature", { key: "agent" }),
+      ],
+      parameters: {
+        created: Math.floor(created.getTime() / 1000) + 1,
+        expires: Math.floor(expires.getTime() / 1000),
+        keyid: browser.keyid,
+        tag: "web-bot-auth",
+      },
+    });
+    return new Request(forwarded, {
+      headers: appendSignature(forwarded.headers, outerFields),
+    });
+  }
+
+  it("attributes the outer signature to the member keyed to its label", async () => {
+    const agent = await ed25519Pair();
+    const browser = await ed25519Pair();
+    const request = await remoteBrowserRequest(agent.signer, browser.signer);
+    const resolver = vi.fn(() => browser.verifier);
+    const result = await verify(request, { label: "browser", resolver, now });
+    expect(result.keyid).toBe(browser.signer.keyid);
+    expect(result.signatureAgent).toEqual({
+      label: "browser",
+      uri: "https://browser.example",
+    });
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keyid: browser.signer.keyid,
+        signatureAgent: { label: "browser", uri: "https://browser.example" },
+      })
+    );
+  });
+
+  it("verifies the inner signature on its own", async () => {
+    const agent = await ed25519Pair();
+    const browser = await ed25519Pair();
+    const request = await remoteBrowserRequest(agent.signer, browser.signer);
+    await expect(
+      verify(request, {
+        label: "agent",
+        resolver: () => agent.verifier,
+        now,
+      })
+    ).resolves.toMatchObject({
+      keyid: agent.signer.keyid,
+      signatureAgent: {
+        label: "agent",
+        uri: "https://agent.alice.example",
+      },
+    });
+  });
+
+  it("does not verify the outer signature with the inner signer's key", async () => {
+    const agent = await ed25519Pair();
+    const browser = await ed25519Pair();
+    const request = await remoteBrowserRequest(agent.signer, browser.signer);
+    await expect(
+      verify(request, {
+        label: "browser",
+        resolver: () => agent.verifier,
+        now,
+      })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: {
+        message: "resolved verifier keyid does not match signed keyid",
+      },
+    });
+  });
+
+  it("keeps a single covered member under another key", async () => {
+    const agent = await ed25519Pair();
+    const browser = await ed25519Pair();
+    const request = await remoteBrowserRequest(agent.signer, browser.signer, {
+      label: "browser",
+      ownMember: false,
+    });
+    await expect(
+      verify(request, {
+        label: "browser",
+        resolver: () => browser.verifier,
+        now,
+      })
+    ).resolves.toMatchObject({
+      signatureAgent: { label: "agent", uri: "https://agent.alice.example" },
+    });
+  });
+
+  it("rejects several covered members when none is keyed to the label", async () => {
+    const agent = await ed25519Pair();
+    const browser = await ed25519Pair();
+    const request = await remoteBrowserRequest(agent.signer, browser.signer, {
+      label: "proxy",
+      ownMember: false,
+    });
+    const headers = new Headers(request.headers);
+    headers.set(
+      "signature-agent",
+      `${signatureAgent}, proxy="https://proxy.example"`
+    );
+    const resolver = vi.fn(() => browser.verifier);
+    // Cover two foreign members and none keyed to "proxy".
+    const outerFields = await createSignature(
+      new Request(request, { headers }),
+      {
+        label: "proxy2",
+        signer: browser.signer,
+        components: [
+          "@authority",
+          component("signature-agent", { key: "agent" }),
+          component("signature-agent", { key: "browser" }),
+        ],
+        parameters: {
+          created: Math.floor(created.getTime() / 1000),
+          expires: Math.floor(expires.getTime() / 1000),
+          keyid: browser.signer.keyid,
+          tag: "web-bot-auth",
+        },
+      }
+    );
+    const ambiguous = new Request(request, {
+      headers: appendSignature(headers, outerFields),
+    });
+    await expect(
+      verify(ambiguous, { label: "proxy2", resolver, now })
+    ).rejects.toMatchObject({
+      message: "Verifier resolution failed",
+      cause: {
+        message:
+          "signature covers several signature-agent members and none is keyed to its label proxy2",
+      },
+    });
+    expect(resolver).not.toHaveBeenCalled();
   });
 });
 

@@ -226,7 +226,10 @@ impl WebBotAuthVerifier {
                     })
             })?;
 
-        let mut signature_agent_key: Option<String> = None;
+        // A signature may cover members of other labels (protocol-01 Section 5.2.2), so
+        // the member keyed to its own label identifies its signer (Section 5.2.1). A
+        // single covered member under a different key is still accepted.
+        let mut covered_keys: Vec<String> = Vec::new();
         for (component, _) in message_verifier.parsed.base.components.iter() {
             if let CoveredComponent::HTTP(HTTPField { name, parameters }) = component
                 && name == "signature-agent"
@@ -237,12 +240,21 @@ impl WebBotAuthVerifier {
             {
                 for parameter in parameters.0.iter() {
                     if let HTTPFieldParameters::Key(key) = parameter {
-                        signature_agent_key = Some(key.clone());
+                        covered_keys.push(key.clone());
                     }
                 }
-                break;
             }
         }
+        let label = message_verifier.parsed.label.as_str();
+        let signature_agent_key = if covered_keys.iter().any(|key| key == label) {
+            Some(label.to_string())
+        } else if covered_keys.len() <= 1 {
+            covered_keys.pop()
+        } else {
+            return Err(ImplementationError::ParsingError(format!(
+                "Signature covers several `Signature-Agent` members and none is keyed to its label {label}"
+            )));
+        };
 
         let parse_link =
             |link_str: &str, discovery_type: &Option<SignatureAgentDiscoveryType>, legacy| {
@@ -439,6 +451,48 @@ mod tests {
             }
             StandardTestVector {}.lookup_component(component)
         }
+    }
+
+    #[test]
+    fn signature_agent_member_keyed_to_the_label_identifies_the_signer() {
+        // protocol-01 Section 5.2.2 and Appendix D.2: an outer signature also covers
+        // another label's member. Coverage order must not change the attribution.
+        let headers = vec![r#"agent="https://agent.example", sig1="https://sig1.example""#];
+        for components in [
+            r#""signature-agent";key="agent" "signature-agent";key="sig1""#,
+            r#""signature-agent";key="sig1" "signature-agent";key="agent""#,
+        ] {
+            let message = SignatureAgentTestVector {
+                components,
+                headers: headers.clone(),
+            };
+            let verifier = WebBotAuthVerifier::parse(&message).unwrap();
+            assert_eq!(
+                verifier.get_signature_agents(),
+                &vec![SignatureAgentLink::Directory("https://sig1.example".into())]
+            );
+        }
+
+        // A single covered member under another key is still accepted.
+        let single = SignatureAgentTestVector {
+            components: r#""signature-agent";key="agent""#,
+            headers: headers.clone(),
+        };
+        assert_eq!(
+            WebBotAuthVerifier::parse(&single)
+                .unwrap()
+                .get_signature_agents(),
+            &vec![SignatureAgentLink::Directory(
+                "https://agent.example".into()
+            )]
+        );
+
+        // Several covered members and none keyed to the label is ambiguous.
+        let ambiguous = SignatureAgentTestVector {
+            components: r#""signature-agent";key="agent" "signature-agent";key="other""#,
+            headers: vec![r#"agent="https://agent.example", other="https://other.example""#],
+        };
+        assert!(WebBotAuthVerifier::parse(&ambiguous).is_err());
     }
 
     #[test]

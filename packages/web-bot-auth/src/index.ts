@@ -214,6 +214,7 @@ function hasExactBareTarget(
 
 function verifiedSignatureAgent(
   request: Request | RequestDescriptor,
+  label: string,
   components: readonly ComponentDescriptor[]
 ): SignatureAgentEntry | undefined {
   const header = requestHeader(request, SIGNATURE_AGENT_HEADER);
@@ -239,14 +240,27 @@ function verifiedSignatureAgent(
       ? [parameters.key]
       : [];
   });
-  if (keys.length !== 1) {
+  // A signature may cover members of other labels (protocol-01 §5.2.2), so the
+  // member keyed to its own label identifies its signer (§5.2.1). A single
+  // covered member under a different key is still accepted.
+  if (keys.length === 0) {
     return policyError(
-      `signature must cover exactly one ${SIGNATURE_AGENT_HEADER} member`
+      `signature must cover a ${SIGNATURE_AGENT_HEADER} member`
     );
   }
-  const entry = parsed.entries.find((candidate) => candidate.label === keys[0]);
+  let key: string;
+  if (keys.includes(label)) {
+    key = label;
+  } else if (keys.length === 1) {
+    key = keys[0];
+  } else {
+    return policyError(
+      `signature covers several ${SIGNATURE_AGENT_HEADER} members and none is keyed to its label ${label}`
+    );
+  }
+  const entry = parsed.entries.find((candidate) => candidate.label === key);
   if (entry === undefined) {
-    return policyError(`Signature-Agent has no supported member ${keys[0]}`);
+    return policyError(`Signature-Agent has no supported member ${key}`);
   }
   return Object.freeze({ ...entry });
 }
@@ -318,7 +332,7 @@ function profileCandidate(
   request: Request | RequestDescriptor,
   candidate: UntrustedSignatureCandidate
 ): UntrustedWebBotSignatureCandidate {
-  const { algorithm, parameters, components } = candidate;
+  const { label, algorithm, parameters, components } = candidate;
   if (
     algorithm !== undefined &&
     algorithm !== "ed25519" &&
@@ -345,7 +359,7 @@ function profileCandidate(
       "signature must cover bare @authority or bare @target-uri"
     );
   }
-  const agent = verifiedSignatureAgent(request, components);
+  const agent = verifiedSignatureAgent(request, label, components);
   return Object.freeze({ keyid, algorithm, signatureAgent: agent });
 }
 
